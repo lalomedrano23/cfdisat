@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Configurar FIEL - CFDISAT{% endblock %}
+{% block content %}
+<h1>Gestion de Empresas y Credenciales FIEL</h1>
+
+<div class="form-container">
+    <h2>Agregar Empresa</h2>
+    <form method="POST" enctype="multipart/form-data" class="form-card">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="rfc">RFC</label>
+                <input type="text" id="rfc" name="rfc" required placeholder="XAXX010101000"
+                       maxlength="13" style="text-transform:uppercase">
+            </div>
+            <div class="form-group">
+                <label for="razon_social">Razon Social</label>
+                <input type="text" id="razon_social" name="razon_social" required placeholder="Nombre de la empresa">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="cer_file">Certificado (.cer)</label>
+                <input type="file" id="cer_file" name="cer_file" accept=".cer" required>
+                <small>Archivo de certificado digital del SAT</small>
+            </div>
+            <div class="form-group">
+                <label for="key_file">Llave Privada (.key)</label>
+                <input type="file" id="key_file" name="key_file" accept=".key" required>
+                <small>Archivo de llave privada de tu FIEL</small>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="password">Contrasena de la FIEL</label>
+            <input type="password" id="password" name="password" required placeholder="Contrasena de tu FIEL">
+            <small>La contrasena que usas para firmar con tu e.firma</small>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Guardar Empresa y FIEL</button>
+    </form>
+</div>
+
+{% if empresas %}
+<div class="table-container">
+    <h2>Empresas Registradas</h2>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>RFC</th>
+                <th>Razon Social</th>
+                <th>FIEL</th>
+                <th>CFDIs</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for emp in empresas %}
+            <tr>
+                <td><strong>{{ emp.rfc }}</strong></td>
+                <td>{{ emp.razon_social }}</td>
+                <td>
+                    {% if emp.fiel %}
+                    <span class="badge badge-success">Configurada</span>
+                    {% else %}
+                    <span class="badge badge-error">Sin configurar</span>
+                    {% endif %}
+                </td>
+                <td>{{ emp.cfdis|length }}</td>
+                <td class="actions">
+                    <a href="{{ url_for('fiel.editar_empresa', empresa_id=emp.id) }}" class="btn btn-small btn-secondary">Editar</a>
+                    <form method="POST" action="{{ url_for('fiel.eliminar_empresa', empresa_id=emp.id) }}" style="display:inline"
+                          onsubmit="return confirm('Eliminar esta empresa y todos sus CFDIs?')">
+                        <button type="submit" class="btn btn-small btn-danger">Eliminar</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

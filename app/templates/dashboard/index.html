@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - CFDISAT{% endblock %}
+{% block content %}
+<div class="dashboard-header">
+    <h1>Dashboard</h1>
+    <div class="empresa-selector">
+        <select id="empresa-select" onchange="window.location.href='/empresa/' + this.value">
+            {% for emp in empresas %}
+            <option value="{{ emp.id }}" {% if empresa_id == emp.id %}selected{% endif %}>
+                {{ emp.rfc }} - {{ emp.razon_social }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+</div>
+
+{% if empresas %}
+<div class="stats-grid">
+    <div class="stat-card stat-blue">
+        <div class="stat-number">{{ stats.total_cfdis }}</div>
+        <div class="stat-label">Total CFDIs</div>
+    </div>
+    <div class="stat-card stat-green">
+        <div class="stat-number">{{ stats.emitidos }}</div>
+        <div class="stat-label">Emitidos</div>
+    </div>
+    <div class="stat-card stat-purple">
+        <div class="stat-number">{{ stats.recibidos }}</div>
+        <div class="stat-label">Recibidos</div>
+    </div>
+    <div class="stat-card stat-orange">
+        <div class="stat-number">{{ stats.cancelados }}</div>
+        <div class="stat-label">Cancelados</div>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card stat-cash">
+        <div class="stat-number">${{ "{:,.2f}".format(stats.total_ingresos) }}</div>
+        <div class="stat-label">Ingresos Totales</div>
+    </div>
+    <div class="stat-card stat-cash-red">
+        <div class="stat-number">${{ "{:,.2f}".format(stats.total_egresos) }}</div>
+        <div class="stat-label">Egresos Totales</div>
+    </div>
+    <div class="stat-card stat-iva">
+        <div class="stat-number">${{ "{:,.2f}".format(stats.iva_pagar) }}</div>
+        <div class="stat-label">IVA a Pagar (mes)</div>
+    </div>
+    <div class="stat-card stat-info">
+        <div class="stat-number">{{ stats.cfdis_mes }}</div>
+        <div class="stat-label">CFDIs este mes</div>
+    </div>
+</div>
+
+<div class="dashboard-actions">
+    <a href="{{ url_for('sat.descargar_cfdi') }}" class="btn btn-primary">Descargar CFDIs del SAT</a>
+    {% if empresa_id %}
+    <a href="{{ url_for('sat.sincronizar_metadata', empresa_id=empresa_id) }}" class="btn btn-secondary"
+       onclick="return confirm('Sincronizar metadata de todos los CFDIs?')">Sincronizar Metadata</a>
+    <a href="{{ url_for('reportes.iva', empresa_id=empresa_id) }}" class="btn btn-secondary">Reporte IVA</a>
+    <a href="{{ url_for('reportes.exportar_excel', empresa_id=empresa_id) }}" class="btn btn-success">Exportar Excel</a>
+    {% endif %}
+</div>
+
+<div class="dashboard-grid">
+    <div class="panel">
+        <h3>Descargas Recientes</h3>
+        {% if download_requests %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Periodo</th>
+                    <th>Estado</th>
+                    <th>CFDIs</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for req in download_requests %}
+                <tr>
+                    <td>{{ req.created_at.strftime('%d/%m %H:%M') }}</td>
+                    <td>{{ req.tipo }}</td>
+                    <td>{{ req.fecha_inicio.strftime('%d/%m/%y') }} - {{ req.fecha_fin.strftime('%d/%m/%y') }}</td>
+                    <td>
+                        <span class="badge badge-{{ 'success' if req.estado == 'completado' else 'error' if req.estado == 'error' else 'warning' }}">
+                            {{ req.estado }}
+                        </span>
+                    </td>
+                    <td>{{ req.total_descargados }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">No hay descargas registradas.</p>
+        {% endif %}
+    </div>
+
+    <div class="panel">
+        <h3>Ultimos CFDIs</h3>
+        {% if cfdis_recientes %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>RFC</th>
+                    <th>Total</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cf in cfdis_recientes %}
+                <tr>
+                    <td>{{ cf.fecha_emision.strftime('%d/%m/%y') if cf.fecha_emision else '-' }}</td>
+                    <td>{{ {'I':'Ingreso','E':'Egreso','T':'Traslado','N':'Nomina','P':'Pago','R':'Retencion'}.get(cf.tipo_comprobante, cf.tipo_comprobante) }}</td>
+                    <td>{{ cf.rfc_emisor }}</td>
+                    <td>${{ "{:,.2f}".format(cf.total) }}</td>
+                    <td>
+                        <span class="badge badge-{{ 'success' if cf.estado == 'vigente' else 'error' }}">
+                            {{ cf.estado }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">No hay CFDIs descargados. <a href="{{ url_for('sat.descargar_cfdi') }}">Descargar ahora</a></p>
+        {% endif %}
+    </div>
+</div>
+
+{% else %}
+<div class="empty-container">
+    <h2>Bienvenido a CFDISAT</h2>
+    <p>Para comenzar, registra una empresa y configura tus credenciales FIEL del SAT.</p>
+    <a href="{{ url_for('fiel.configurar_fiel') }}" class="btn btn-primary">Configurar Empresa</a>
+</div>
+{% endif %}
+{% endblock %}

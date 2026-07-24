@@ -1,0 +1,29 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+
+
+def get_database_uri():
+    # Produccion: Cloud SQL
+    connection_name = os.getenv('CLOUD_SQL_CONNECTION_NAME')
+    db_user = os.getenv('DB_USER', 'cfdisat')
+    db_pass = os.getenv('DB_PASS', '')
+    db_name = os.getenv('DB_NAME', 'cfdisat')
+
+    if connection_name:
+        return f'mysql+pymysql://{db_user}:{db_pass}@/{db_name}?unix_socket=/cloudsql/{connection_name}'
+
+    # Local: SQLite
+    return f'sqlite:///{os.path.join(BASE_DIR, "cfdisat.db")}'
+
+
+class Config:
+    SECRET_KEY = os.getenv('SECRET_KEY', 'cambiame-en-produccion-2026')
+    SQLALCHEMY_DATABASE_URI = get_database_uri()
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    UPLOAD_FOLDER_FIEL = os.path.join(BASE_DIR, 'app', 'uploads', 'fiel')
+    UPLOAD_FOLDER_CFDIS = os.path.join(BASE_DIR, 'app', 'uploads', 'cfdis')
+    MAX_CONTENT_LENGTH = 16 * 1024 * 1024

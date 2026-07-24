@@ -1,0 +1,54 @@
+cfdisat/
+  app.py                  # Punto de entrada
+  config.py               # Configuracion
+  requirements.txt        # Dependencias
+  iniciar.bat             # Script para ejecutar
+  app/
+    __init__.py           # App Flask
+    models.py             # Modelos de BD (User, Empresa, FIEL, CFDI)
+    auth.py               # Login/Registro
+    fiel.py               # Gestion de .cer, .key, password
+    sat.py                # Conexion SAT + descarga CFDIs
+    dashboard.py          # Dashboard con estadisticas
+    reportes.py           # Reporte IVA + Exportar Excel
+    templates/            # Interfaces HTML
+    static/css/           # Estilos
+    static/js/            # JavaScript
+
+Funcionalidades
+Funcion		Descripcion
+Gestion FIEL	Subir archivos .cer y .key + password, encriptados en BD
+Descarga CFDIs	Emision, recepcion y retenciones del SAT via satcfdi
+Metadata	Sincronizar estatus vigente/cancelado de cada CFDI
+Dashboard	Totales, IVA a pagar, graficas por empresa
+Reporte IVA	Calculo automatico IVA pagado vs acreditable
+Exportar Excel	Todos los CFDIs en formato XLSX con filtros
+
+Para Ejecutar
+cd "C:\Users\informatica\Documents\Proyecto nuevo\cfdisat"
+iniciar.bat
+Despues abre http://localhost:5000 en tu navegador.
+
+Flujo de Uso
+Registrarse con email y password
+Ir a Empresas/FIEL y subir tu .cer, .key + password
+Ir a Descargar CFDIs y seleccionar periodo
+Los CFDIs aparecen en el Dashboard
+Ver Reporte IVA o Exportar Excel desde el menú
+
+Credenciales Admin
+Campo	Valor
+Email	admin@cfdisat.local
+Password	admin123
+Cambia esta contrasena despues de iniciar sesion.
+
+Que puede hacer el Admin
+Ver todos los usuarios registrados en el sistema
+Eliminar usuarios (borra sus empresas, CFDIs y archivos FIEL permanentemente)
+Activar/Desactivar usuarios sin eliminarlos
+Hacer Admin a otro usuario o quitarle el permiso
+El link Admin aparece en la barra de navegacion solo para administradores
+Flujo
+Inicia sesion con admin@cfdisat.local / admin123
+Haz clic en Admin en el menu superior
+Veras la lista de todos los usuarios con opciones para gestionarlos

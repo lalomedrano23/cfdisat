@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Descargar CFDIs - CFDISAT{% endblock %}
+{% block content %}
+<h1>Descargar CFDIs del SAT</h1>
+
+<div class="form-container">
+    <form method="POST" class="form-card" id="descargar-form">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="empresa_id">Empresa</label>
+                <select id="empresa_id" name="empresa_id" required>
+                    <option value="">Selecciona una empresa...</option>
+                    {% for emp in empresas %}
+                    <option value="{{ emp.id }}">{{ emp.rfc }} - {{ emp.razon_social }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="tipo">Tipo de CFDI</label>
+                <select id="tipo" name="tipo" required>
+                    <option value="emitidos">CFDIs Emitidos (Ingresos)</option>
+                    <option value="recibidos">CFDIs Recibidos</option>
+                    <option value="retenciones_emitidas">Retenciones Emitidas</option>
+                    <option value="retenciones_recibidas">Retenciones Recibidas</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="fecha_inicio">Fecha Inicio</label>
+                <input type="date" id="fecha_inicio" name="fecha_inicio" required>
+            </div>
+            <div class="form-group">
+                <label for="fecha_fin">Fecha Fin</label>
+                <input type="date" id="fecha_fin" name="fecha_fin" required>
+            </div>
+        </div>
+
+        <div class="form-info">
+            <p>Se descargaran todos los CFDIs del SAT para el periodo seleccionado usando tus credenciales FIEL.</p>
+            <p>Los CFDIs duplicados seran omitidos automaticamente.</p>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-lg" id="btn-descargar">
+            Descargar CFDIs del SAT
+        </button>
+    </form>
+</div>
+
+<div class="info-cards">
+    <div class="info-card">
+        <h3>CFDIs Emitidos</h3>
+        <p>Todas las facturas (Ingresos, Egresos, Traslados, Nomina, Pagos) que tu empresa ha emitido.</p>
+    </div>
+    <div class="info-card">
+        <h3>CFDIs Recibidos</h3>
+        <p>Todas las facturas que otros contribuyentes te han emitido a tu RFC.</p>
+    </div>
+    <div class="info-card">
+        <h3>Retenciones</h3>
+        <p>Comprobantes de retencion de impuestos emitidos o recibidos.</p>
+    </div>
+</div>
+{% endblock %}

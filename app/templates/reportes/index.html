@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Reportes - CFDISAT{% endblock %}
+{% block content %}
+<h1>Reportes</h1>
+
+{% if empresas %}
+<div class="report-cards">
+    {% for emp in empresas %}
+    <div class="report-card">
+        <h3>{{ emp.rfc }}</h3>
+        <p>{{ emp.razon_social }}</p>
+        <div class="report-links">
+            <a href="{{ url_for('reportes.iva', empresa_id=emp.id) }}" class="btn btn-primary">Reporte IVA</a>
+            <a href="{{ url_for('reportes.exportar_excel', empresa_id=emp.id) }}" class="btn btn-success">Exportar Excel</a>
+            <a href="{{ url_for('reportes.exportar_excel', empresa_id=emp.id, tipo='I') }}" class="btn btn-secondary">Solo Emitidos</a>
+            <a href="{{ url_for('reportes.exportar_excel', empresa_id=emp.id, tipo='E') }}" class="btn btn-secondary">Solo Egresos</a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-container">
+    <p>Registra una empresa primero para generar reportes.</p>
+</div>
+{% endif %}
+{% endblock %}

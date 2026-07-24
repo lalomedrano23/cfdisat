@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Admin - CFDISAT{% endblock %}
+{% block content %}
+<h1>Panel de Administracion</h1>
+
+<div class="stats-grid">
+    <div class="stat-card stat-blue">
+        <div class="stat-number">{{ users|length }}</div>
+        <div class="stat-label">Usuarios Registrados</div>
+    </div>
+    <div class="stat-card stat-green">
+        <div class="stat-number">{{ total_empresas }}</div>
+        <div class="stat-label">Empresas</div>
+    </div>
+    <div class="stat-card stat-purple">
+        <div class="stat-number">{{ total_cfdis }}</div>
+        <div class="stat-label">CFDIs Totales</div>
+    </div>
+</div>
+
+<div class="panel">
+    <h3>Usuarios del Sistema</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Email</th>
+                <th>Rol</th>
+                <th>Estado</th>
+                <th>Empresas</th>
+                <th>Creado</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.nombre }}</td>
+                <td>{{ user.email }}</td>
+                <td>
+                    <span class="badge badge-{{ 'success' if user.is_admin else 'info' }}">
+                        {{ 'Admin' if user.is_admin else 'Usuario' }}
+                    </span>
+                </td>
+                <td>
+                    <span class="badge badge-{{ 'success' if user.activo else 'error' }}">
+                        {{ 'Activo' if user.activo else 'Inactivo' }}
+                    </span>
+                </td>
+                <td>{{ user.empresas|length }}</td>
+                <td>{{ user.created_at.strftime('%d/%m/%Y') }}</td>
+                <td class="actions">
+                    {% if user.id != current_user.id %}
+                    <form method="POST" action="{{ url_for('admin.hacer_admin', user_id=user.id) }}" style="display:inline">
+                        <button type="submit" class="btn btn-small btn-secondary">
+                            {{ 'Quitar Admin' if user.is_admin else 'Hacer Admin' }}
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('admin.toggle_usuario', user_id=user.id) }}" style="display:inline">
+                        <button type="submit" class="btn btn-small btn-secondary">
+                            {{ 'Desactivar' if user.activo else 'Activar' }}
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('admin.eliminar_usuario', user_id=user.id) }}" style="display:inline"
+                          onsubmit="return confirm('ELIMINAR a {{ user.email }}? Se borraran TODAS sus empresas, CFDIs y archivos FIEL permanentemente.')">
+                        <button type="submit" class="btn btn-small btn-danger">Eliminar</button>
+                    </form>
+                    {% else %}
+                    <span style="color:#999;font-size:12px">Tu cuenta</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

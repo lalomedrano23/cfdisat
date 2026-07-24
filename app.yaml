@@ -1,0 +1,23 @@
+runtime: python312
+entrypoint: gunicorn -b :$PORT app:app
+
+instance_class: F1
+
+automatic_scaling:
+  min_instances: 0
+  max_instances: 2
+  target_cpu_utilization: 0.65
+
+env_variables:
+  SECRET_KEY: "cambiame-en-produccion-2026"
+  # Descomentar para Cloud SQL:
+  # CLOUD_SQL_CONNECTION_NAME: "proyecto:region:instancia"
+  # DB_USER: "cfdisat"
+  # DB_PASS: "tu-password"
+  # DB_NAME: "cfdisat"
+
+handlers:
+- url: /static
+  static_dir: app/static
+- url: /.*
+  script: auto

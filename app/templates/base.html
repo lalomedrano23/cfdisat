@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}CFDISAT{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    {% if current_user.is_authenticated %}
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="{{ url_for('dashboard.index') }}">CFDISAT</a>
+        </div>
+        <div class="nav-links">
+            <a href="{{ url_for('dashboard.index') }}">Dashboard</a>
+            <a href="{{ url_for('fiel.configurar_fiel') }}">Empresas/FIEL</a>
+            <a href="{{ url_for('sat.descargar_cfdi') }}">Descargar CFDIs</a>
+            <a href="{{ url_for('reportes.index') }}">Reportes</a>
+            {% if current_user.is_admin %}
+            <a href="{{ url_for('admin.index') }}" class="nav-admin">Admin</a>
+            {% endif %}
+            <span class="nav-user">{{ current_user.nombre }}</span>
+            <a href="{{ url_for('auth.logout') }}" class="btn-logout">Salir</a>
+        </div>
+    </nav>
+    {% endif %}
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

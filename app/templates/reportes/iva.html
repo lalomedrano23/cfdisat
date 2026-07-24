@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Reporte IVA - {{ empresa.rfc }}{% endblock %}
+{% block content %}
+<h1>Reporte IVA - {{ empresa.rfc }}</h1>
+
+<div class="form-container">
+    <form method="GET" class="form-inline">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="month">Mes</label>
+                <select id="month" name="month">
+                    {% for m in range(1, 13) %}
+                    <option value="{{ m }}" {% if m == month %}selected{% endif %}>
+                        {{ ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1] }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="year">Ano</label>
+                <select id="year" name="year">
+                    {% for y in range(2020, 2028) %}
+                    <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Consultar</button>
+        </div>
+    </form>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card stat-green">
+        <div class="stat-number">${{ "{:,.2f}".format(iva_cobrado) }}</div>
+        <div class="stat-label">IVA Cobrado (Pagado)</div>
+    </div>
+    <div class="stat-card stat-purple">
+        <div class="stat-number">${{ "{:,.2f}".format(iva_acreditable) }}</div>
+        <div class="stat-label">IVA Acreditable</div>
+    </div>
+    <div class="stat-card {% if iva_pagar >= 0 %}stat-cash{% else %}stat-cash-red{% endif %}">
+        <div class="stat-number">${{ "{:,.2f}".format(iva_pagar) }}</div>
+        <div class="stat-label">IVA {% if iva_pagar >= 0 %}a Pagar{% else %}a Favor{% endif %}</div>
+    </div>
+</div>
+
+<div class="panel">
+    <h3>Detalle de CFDIs del Periodo</h3>
+    {% if cfdis_detalle %}
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Fecha</th>
+                <th>UUID</th>
+                <th>Tipo</th>
+                <th>RFC Emisor</th>
+                <th>RFC Receptor</th>
+                <th>Subtotal</th>
+                <th>IVA</th>
+                <th>Total</th>
+                <th>Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cf in cfdis_detalle %}
+            <tr>
+                <td>{{ cf.fecha_emision.strftime('%d/%m/%y') if cf.fecha_emision else '-' }}</td>
+                <td class="uuid-cell">{{ cf.uuid[:8] }}...</td>
+                <td>{{ {'I':'Ingreso','E':'Egreso','T':'Traslado','N':'Nomina','P':'Pago','R':'Retencion'}.get(cf.tipo_comprobante, cf.tipo_comprobante) }}</td>
+                <td>{{ cf.rfc_emisor }}</td>
+                <td>{{ cf.rfc_receptor }}</td>
+                <td class="money">${{ "{:,.2f}".format(cf.subtotal) }}</td>
+                <td class="money">${{ "{:,.2f}".format(cf.impuestos) }}</td>
+                <td class="money">${{ "{:,.2f}".format(cf.total) }}</td>
+                <td>
+                    <span class="badge badge-{{ 'success' if cf.estado == 'vigente' else 'error' }}">
+                        {{ cf.estado }}
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No hay CFDIs en este periodo.</p>
+    {% endif %}
+</div>
+
+<div class="form-actions">
+    <a href="{{ url_for('reportes.exportar_excel', empresa_id=empresa.id, tipo='', estado='') }}" class="btn btn-success">Exportar Todo a Excel</a>
+    <a href="{{ url_for('reportes.index') }}" class="btn btn-secondary">Volver</a>
+</div>
+{% endblock %}
