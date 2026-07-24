@@ -17,5 +17,5 @@ echo [3] Iniciando servidor en http://localhost:5000
 echo    Abre tu navegador en: http://localhost:5000
 echo    Presiona Ctrl+C para detener
 echo.
-python app.py
+python main.py
 pause
