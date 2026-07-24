@@ -13,6 +13,10 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
+    import os
+    os.makedirs(app.config['UPLOAD_FOLDER_FIEL'], exist_ok=True)
+    os.makedirs(app.config['UPLOAD_FOLDER_CFDIS'], exist_ok=True)
+
     db.init_app(app)
     login_manager.init_app(app)
 

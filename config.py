@@ -7,7 +7,6 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 
 def get_database_uri():
-    # Produccion: Cloud SQL
     connection_name = os.getenv('CLOUD_SQL_CONNECTION_NAME')
     db_user = os.getenv('DB_USER', 'cfdisat')
     db_pass = os.getenv('DB_PASS', '')
@@ -15,6 +14,10 @@ def get_database_uri():
 
     if connection_name:
         return f'mysql+pymysql://{db_user}:{db_pass}@/{db_name}?unix_socket=/cloudsql/{connection_name}'
+
+    # Produccion Render: SQLite en /tmp
+    if os.getenv('RENDER'):
+        return 'sqlite:////tmp/cfdisat.db'
 
     # Local: SQLite
     return f'sqlite:///{os.path.join(BASE_DIR, "cfdisat.db")}'
