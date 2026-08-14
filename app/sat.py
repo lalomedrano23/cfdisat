@@ -1,4 +1,5 @@
 import os
+import urllib3
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app
 from flask_login import login_required, current_user
@@ -7,6 +8,10 @@ from app.models import Empresa, FielCredentials, CFDI, DownloadRequest
 from app.fiel import decrypt_password
 
 sat_bp = Blueprint('sat', __name__)
+
+# El portal del SAT suele fallar en verificacion SSL (certificado intermedio
+# ausente o proxy corporativo). Desactivamos la verificacion solo para el SAT.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def _create_signer(empresa):
@@ -49,6 +54,7 @@ def _login_sat(signer):
     from satcfdi.portal import SATFacturaElectronica
 
     session = SATFacturaElectronica(signer)
+    session.verify = False
     session.login()
     return session
 
