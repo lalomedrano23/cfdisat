@@ -1,5 +1,8 @@
 import os
-import urllib3
+import time
+import base64
+import io
+import zipfile
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app
 from flask_login import login_required, current_user
@@ -8,10 +11,6 @@ from app.models import Empresa, FielCredentials, CFDI, DownloadRequest
 from app.fiel import decrypt_password
 
 sat_bp = Blueprint('sat', __name__)
-
-# El portal del SAT suele fallar en verificacion SSL (certificado intermedio
-# ausente o proxy corporativo). Desactivamos la verificacion solo para el SAT.
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def _create_signer(empresa):
@@ -48,30 +47,6 @@ def _create_signer(empresa):
         return signer, None
     except Exception as e:
         return None, f'Error al cargar FIEL: {str(e)}'
-
-
-def _login_sat(signer):
-    import ssl
-    import requests
-    from requests.adapters import HTTPAdapter
-    from satcfdi.portal import SATFacturaElectronica
-
-    # Adapter para el SAT: desactiva verificacion SSL y baja el nivel de
-    # seguridad de cifrado (el SAT usa parametros DH antiguos -> dh key too small)
-    class _InsecureAdapter(HTTPAdapter):
-        def init_poolmanager(self, *args, **kwargs):
-            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            ctx.set_ciphers('DEFAULT:@SECLEVEL=0')
-            kwargs['ssl_context'] = ctx
-            return super().init_poolmanager(*args, **kwargs)
-
-    session = SATFacturaElectronica(signer)
-    session.verify = False
-    session.mount('https://', _InsecureAdapter())
-    session.login()
-    return session
 
 
 def _parse_cfdi_metadata(xml_bytes, tipo_solicitud):
@@ -191,88 +166,123 @@ def descargar_cfdi():
             if error:
                 raise Exception(error)
 
-            session = _login_sat(signer)
+            from satcfdi.pacs.sat import SAT, EstadoSolicitud, EstadoComprobante
 
-            tipo_sat_map = {
-                'emitidos': 'CFDI_Emitidos',
-                'recibidos': 'CFDI_Recibidos',
-                'retenciones_emitidas': 'Retenciones_Emitidas',
-                'retenciones_recibidas': 'Retenciones_Recibidas',
-            }
-            sat_type = tipo_sat_map.get(tipo, 'CFDI_Emitidos')
+            try:
+                fecha_inicio_d = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+                fecha_fin_d = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+            except ValueError:
+                raise Exception('Formato de fechas invalido (use YYYY-MM-DD).')
 
-            url_base = 'https://portalcfdi.facturaelectronica.sat.gob.mx'
-            if 'Emitido' in sat_type:
-                url_endpoint = f'{url_base}/ReportesCP.aspx'
-            elif 'Recibido' in sat_type:
-                url_endpoint = f'{url_base}/Reportes.aspx'
+            sat = SAT(signer=signer)
+
+            if tipo == 'recibidos':
+                def solicitar(estado):
+                    return sat.recover_comprobante_received_request(
+                        fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
+                        tipo_solicitud='CFDI', estado_comprobante=estado)
+            elif tipo == 'retenciones_emitidas':
+                def solicitar(estado):
+                    return sat.recover_retencion_emitted_request(
+                        fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
+                        tipo_solicitud='CFDI', estado_comprobante=estado)
+            elif tipo == 'retenciones_recibidas':
+                def solicitar(estado):
+                    return sat.recover_retencion_received_request(
+                        fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
+                        tipo_solicitud='CFDI', estado_comprobante=estado)
             else:
-                url_endpoint = f'{url_base}/ReportesCP.aspx'
+                def solicitar(estado):
+                    return sat.recover_comprobante_emitted_request(
+                        fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
+                        tipo_solicitud='CFDI', estado_comprobante=estado)
 
-            params = {
-                'rfc': empresa.rfc,
-                'fechaInicial': fecha_inicio,
-                'fechaFinal': fecha_fin,
-                'tipoComprobante': tipo,
-                'estadoComprobante': 'Todos',
-            }
+            # El SAT solo acepta 'Vigente' para descarga de CFDI; intentamos
+            # 'Todos' y si lo rechaza reintentamos con 'Vigente'.
+            solicitud = None
+            ultimo_error = None
+            for estado in (EstadoComprobante.TODOS, EstadoComprobante.VIGENTE):
+                try:
+                    solicitud = solicitar(estado)
+                    if solicitud.get('CodEstatus', '5000') == '5000':
+                        break
+                    if solicitud.get('CodEstatus') == '5004':
+                        break  # sin resultados para la consulta
+                    ultimo_error = solicitud
+                except Exception as e:
+                    ultimo_error = e
+            if solicitud is None:
+                raise Exception(f'El SAT rechazo la solicitud de descarga: {ultimo_error}')
 
-            resp = session.get(url_endpoint, params=params, timeout=60)
+            if solicitud.get('CodEstatus') == '5004':
+                request_dl.estado = 'completado'
+                request_dl.total_descargados = 0
+                request_dl.mensaje = 'No se encontraron CFDIs con esos parametros.'
+                request_dl.completed_at = datetime.utcnow()
+                db.session.commit()
+                flash('Descarga completada: 0 CFDIs (el SAT no encontro coincidencias).', 'success')
+                return redirect(url_for('sat.descargar_cfdi'))
 
-            if resp.status_code != 200:
-                raise Exception(f'Error del SAT (HTTP {resp.status_code}): {resp.text[:200]}')
+            id_solicitud = solicitud['IdSolicitud']
 
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(resp.text, 'html.parser')
+            # Esperar a que el SAT genere los paquetes (suele tardar 1-2 minutos)
+            st = None
+            for _ in range(25):
+                time.sleep(15)
+                st = sat.recover_comprobante_status(id_solicitud)
+                estado_solicitud = st.get('EstadoSolicitud')
+                if estado_solicitud == int(EstadoSolicitud.TERMINADA):
+                    break
+                if estado_solicitud in (int(EstadoSolicitud.ERROR), int(EstadoSolicitud.RECHAZADA), int(EstadoSolicitud.VENCIDA)):
+                    raise Exception(f'El SAT rechazo la solicitud de descarga: {st}')
+            else:
+                raise Exception('El SAT tarda demasiado; la solicitud sigue en proceso.')
 
-            cfdis_links = soup.find_all('a', href=True)
             count = 0
+            for id_paquete in (st.get('IdsPaquetes') or []):
+                _, paquete_b64 = sat.recover_comprobante_download(id_paquete)
+                if not paquete_b64:
+                    continue
+                with zipfile.ZipFile(io.BytesIO(base64.b64decode(paquete_b64))) as paquete:
+                    for nombre in paquete.namelist():
+                        if not nombre.lower().endswith('.xml'):
+                            continue
+                        xml_bytes = paquete.read(nombre)
+                        metadata = _parse_cfdi_metadata(xml_bytes, tipo)
+                        if not metadata or not metadata['uuid']:
+                            continue
+                        existing = CFDI.query.filter_by(
+                            empresa_id=empresa.id,
+                            uuid=metadata['uuid']
+                        ).first()
+                        if existing:
+                            continue
 
-            for link in cfdis_links:
-                href = link.get('href', '')
-                if 'DownloadAttachment' in href or '.zip' in href or 'descarga' in href.lower():
-                    try:
-                        if href.startswith('/'):
-                            href = url_base + href
-                        xml_resp = session.get(href, timeout=30)
-                        if xml_resp.status_code == 200:
-                            metadata = _parse_cfdi_metadata(xml_resp.content, tipo)
-                            if metadata and metadata['uuid']:
-                                existing = CFDI.query.filter_by(
-                                    empresa_id=empresa.id,
-                                    uuid=metadata['uuid']
-                                ).first()
-                                if existing:
-                                    existing.estado = metadata.get('estado', 'vigente')
-                                    continue
-
-                                cf = CFDI(
-                                    empresa_id=empresa.id,
-                                    uuid=metadata['uuid'],
-                                    tipo_comprobante=metadata['tipo_comprobante'],
-                                    fecha_emision=datetime.fromisoformat(metadata['fecha_emision'].replace('T', ' ')) if metadata['fecha_emision'] else None,
-                                    fecha_timbrado=datetime.fromisoformat(metadata['fecha_timbrado'].replace('T', ' ')) if metadata.get('fecha_timbrado') else None,
-                                    rfc_emisor=metadata['rfc_emisor'],
-                                    nombre_emisor=metadata['nombre_emisor'],
-                                    rfc_receptor=metadata['rfc_receptor'],
-                                    nombre_receptor=metadata['nombre_receptor'],
-                                    subtotal=metadata['subtotal'],
-                                    total=metadata['total'],
-                                    impuestos=metadata['impuestos'],
-                                    estado=metadata['estado'],
-                                    uso_cfdi=metadata['uso_cfdi'],
-                                    metodo_pago=metadata['metodo_pago'],
-                                    forma_pago=metadata['forma_pago'],
-                                    serie=metadata.get('serie', ''),
-                                    folio=metadata.get('folio', ''),
-                                    moneda=metadata['moneda'],
-                                    tipo_cambio=metadata['tipo_cambio'],
-                                    xml_content=xml_resp.content.decode('utf-8', errors='ignore'),
-                                )
-                                db.session.add(cf)
-                                count += 1
-                    except Exception:
-                        continue
+                        cf = CFDI(
+                            empresa_id=empresa.id,
+                            uuid=metadata['uuid'],
+                            tipo_comprobante=metadata['tipo_comprobante'],
+                            fecha_emision=datetime.fromisoformat(metadata['fecha_emision'].replace('T', ' ')) if metadata['fecha_emision'] else None,
+                            fecha_timbrado=datetime.fromisoformat(metadata['fecha_timbrado'].replace('T', ' ')) if metadata.get('fecha_timbrado') else None,
+                            rfc_emisor=metadata['rfc_emisor'],
+                            nombre_emisor=metadata['nombre_emisor'],
+                            rfc_receptor=metadata['rfc_receptor'],
+                            nombre_receptor=metadata['nombre_receptor'],
+                            subtotal=metadata['subtotal'],
+                            total=metadata['total'],
+                            impuestos=metadata['impuestos'],
+                            estado=metadata['estado'],
+                            uso_cfdi=metadata['uso_cfdi'],
+                            metodo_pago=metadata['metodo_pago'],
+                            forma_pago=metadata['forma_pago'],
+                            serie=metadata.get('serie', ''),
+                            folio=metadata.get('folio', ''),
+                            moneda=metadata['moneda'],
+                            tipo_cambio=metadata['tipo_cambio'],
+                            xml_content=xml_bytes.decode('utf-8', errors='ignore'),
+                        )
+                        db.session.add(cf)
+                        count += 1
 
             request_dl.estado = 'completado'
             request_dl.total_descargados = count
@@ -307,30 +317,32 @@ def sincronizar_metadata(empresa_id):
         return redirect(url_for('dashboard.index'))
 
     try:
-        from satcfdi.portal import SATFacturaElectronica
-
         signer, error = _create_signer(empresa)
         if error:
             raise Exception(error)
 
-        session = _login_sat(signer)
+        from satcfdi.pacs.sat import SAT
+        sat = SAT(signer=signer)
 
         cfdis = CFDI.query.filter_by(empresa_id=empresa.id).all()
         actualizados = 0
 
         for cf in cfdis:
             try:
-                url = f'https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaCFDIService.svc?uuid={cf.uuid}&rfcEmisor={cf.rfc_emisor}&rfcReceptor={cf.rfc_receptor}&total={cf.total}'
-                resp = session.get(url, timeout=10)
-                if resp.status_code == 200:
-                    if 'Cancelado' in resp.text:
-                        if cf.estado != 'cancelado':
-                            cf.estado = 'cancelado'
-                            actualizados += 1
-                    elif 'Vigente' in resp.text or 'cancelado' not in resp.text.lower():
-                        if cf.estado != 'vigente':
-                            cf.estado = 'vigente'
-                            actualizados += 1
+                consulta = {
+                    'Emisor': {'Rfc': cf.rfc_emisor},
+                    'Receptor': {'Rfc': cf.rfc_receptor},
+                    'Total': cf.total,
+                    'Complemento': {'TimbreFiscalDigital': {'UUID': cf.uuid}},
+                }
+                res = sat.status(consulta)
+                estado_sat = res.get('Estado', '')
+                if 'Cancelado' in estado_sat and cf.estado != 'cancelado':
+                    cf.estado = 'cancelado'
+                    actualizados += 1
+                elif 'Vigente' in estado_sat and cf.estado != 'vigente':
+                    cf.estado = 'vigente'
+                    actualizados += 1
             except Exception:
                 continue
 
