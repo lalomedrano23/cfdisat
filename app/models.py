@@ -45,6 +45,8 @@ class FielCredentials(db.Model):
     empresa_id = db.Column(db.Integer, db.ForeignKey('empresas.id'), nullable=False)
     cer_filename = db.Column(db.String(256), nullable=False)
     key_filename = db.Column(db.String(256), nullable=False)
+    cer_data = db.Column(db.LargeBinary)
+    key_data = db.Column(db.LargeBinary)
     password_encrypted = db.Column(db.String(512), nullable=False)
     rfc = db.Column(db.String(13), nullable=False)
     nombre = db.Column(db.String(300))

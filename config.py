@@ -7,6 +7,16 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 
 def get_database_uri():
+    # Produccion: PostgreSQL via DATABASE_URL (Render/Neon/Supabase inyectan esta variable)
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql+psycopg2://', 1)
+        if 'sslmode=' not in database_url:
+            sep = '&' if '?' in database_url else '?'
+            database_url = f'{database_url}{sep}sslmode=require'
+        return database_url
+
     connection_name = os.getenv('CLOUD_SQL_CONNECTION_NAME')
     db_user = os.getenv('DB_USER', 'cfdisat')
     db_pass = os.getenv('DB_PASS', '')

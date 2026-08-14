@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Entorno y secretos
+.env
+*.env
+.env.*
+!.env.example
+
+# Base de datos local
+*.db
+*.sqlite3
+
+# Archivos subidos (FIEL, CFDIs)
+app/uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# SO
+Thumbs.db
+.DS_Store

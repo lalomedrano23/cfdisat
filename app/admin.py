@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import User, Empresa, FielCredentials, CFDI, DownloadRequest
@@ -87,6 +87,3 @@ def hacer_admin(user_id):
     rol = 'administrador' if user.is_admin else 'usuario normal'
     flash(f'{user.email} ahora es {rol}.', 'success')
     return redirect(url_for('admin.index'))
-
-
-from flask import current_app

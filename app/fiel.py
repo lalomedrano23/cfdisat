@@ -1,23 +1,29 @@
 import os
 import shutil
+import base64
+import hashlib
 from flask import Blueprint, render_template, redirect, url_for, flash, current_app, request
 from flask_login import login_required, current_user
 from cryptography.fernet import Fernet
+from config import Config
 from app import db
-from app.models import Empresa, FielCredentials
+from app.models import Empresa, FielCredentials, CFDI
 
 fiel_bp = Blueprint('fiel', __name__)
 
-ENCRYPTION_KEY = Fernet.generate_key()
-cipher = Fernet(ENCRYPTION_KEY)
+
+def _get_cipher():
+    raw_key = Config.SECRET_KEY.encode()
+    key = base64.urlsafe_b64encode(hashlib.sha256(raw_key).digest())
+    return Fernet(key)
 
 
 def encrypt_password(password):
-    return cipher.encrypt(password.encode()).decode()
+    return _get_cipher().encrypt(password.encode()).decode()
 
 
 def decrypt_password(encrypted):
-    return cipher.decrypt(encrypted.encode()).decode()
+    return _get_cipher().decrypt(encrypted.encode()).decode()
 
 
 @fiel_bp.route('/configurar-fiel', methods=['GET', 'POST'])
@@ -57,6 +63,10 @@ def configurar_fiel():
 
         cer_path = os.path.join(fiel_dir, f'{rfc}.cer')
         key_path = os.path.join(fiel_dir, f'{rfc}.key')
+        cer_data = cer_file.read()
+        key_data = key_file.read()
+        cer_file.seek(0)
+        key_file.seek(0)
         cer_file.save(cer_path)
         key_file.save(key_path)
 
@@ -64,6 +74,8 @@ def configurar_fiel():
             empresa_id=empresa.id,
             cer_filename=f'{rfc}.cer',
             key_filename=f'{rfc}.key',
+            cer_data=cer_data,
+            key_data=key_data,
             password_encrypted=encrypt_password(password),
             rfc=rfc,
             nombre=razon_social
@@ -95,11 +107,15 @@ def editar_empresa(empresa_id):
         fiel = FielCredentials.query.filter_by(empresa_id=empresa.id).first()
 
         if cer_file and cer_file.filename:
+            fiel.cer_data = cer_file.read()
+            cer_file.seek(0)
             fiel_dir = os.path.join(current_app.config['UPLOAD_FOLDER_FIEL'], empresa.rfc)
             cer_path = os.path.join(fiel_dir, fiel.cer_filename)
             cer_file.save(cer_path)
 
         if key_file and key_file.filename:
+            fiel.key_data = key_file.read()
+            key_file.seek(0)
             fiel_dir = os.path.join(current_app.config['UPLOAD_FOLDER_FIEL'], empresa.rfc)
             key_path = os.path.join(fiel_dir, fiel.key_filename)
             key_file.save(key_path)
@@ -129,7 +145,6 @@ def eliminar_empresa(empresa_id):
             shutil.rmtree(fiel_dir)
         db.session.delete(fiel)
 
-    CFDI = __import__('app.models', fromlist=['CFDI']).CFDI
     CFDI.query.filter_by(empresa_id=empresa.id).delete()
     db.session.delete(empresa)
     db.session.commit()

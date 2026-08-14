@@ -60,9 +60,11 @@ def ver_empresa(empresa_id):
 
 
 def _get_empresa_stats(empresa_id):
+    empresa = Empresa.query.get(empresa_id)
+    rfc = empresa.rfc if empresa else ''
     total_cfdis = CFDI.query.filter_by(empresa_id=empresa_id).count()
     emitidos = CFDI.query.filter_by(empresa_id=empresa_id, tipo_comprobante='I').count()
-    recibidos = CFDI.query.filter_by(empresa_id=empresa_id, tipo_comprobante='R').count()
+    recibidos = CFDI.query.filter_by(empresa_id=empresa_id, rfc_receptor=rfc).count()
     egresos = CFDI.query.filter_by(empresa_id=empresa_id, tipo_comprobante='E').count()
     cancelados = CFDI.query.filter_by(empresa_id=empresa_id, estado='cancelado').count()
 

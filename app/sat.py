@@ -17,19 +17,27 @@ def _create_signer(empresa):
     if not fiel:
         return None, 'No hay credenciales FIEL configuradas.'
 
-    fiel_dir = os.path.join(current_app.config['UPLOAD_FOLDER_FIEL'], empresa.rfc)
-    cer_path = os.path.join(fiel_dir, fiel.cer_filename)
-    key_path = os.path.join(fiel_dir, fiel.key_filename)
     password = decrypt_password(fiel.password_encrypted)
 
-    if not os.path.exists(cer_path) or not os.path.exists(key_path):
-        return None, 'Archivos FIEL no encontrados.'
+    cer_data = fiel.cer_data
+    key_data = fiel.key_data
+    if not cer_data or not key_data:
+        # Fallback: archivos en disco (registros creados antes de guardar en BD)
+        fiel_dir = os.path.join(current_app.config['UPLOAD_FOLDER_FIEL'], empresa.rfc)
+        cer_path = os.path.join(fiel_dir, fiel.cer_filename)
+        key_path = os.path.join(fiel_dir, fiel.key_filename)
+        if not os.path.exists(cer_path) or not os.path.exists(key_path):
+            return None, 'Archivos FIEL no encontrados.'
+        with open(cer_path, 'rb') as f:
+            cer_data = f.read()
+        with open(key_path, 'rb') as f:
+            key_data = f.read()
 
     try:
         from satcfdi.models.signer import Signer
         signer = Signer.load(
-            certificate=cer_path,
-            key=key_path,
+            certificate=cer_data,
+            key=key_data,
             password=password.encode() if password else None,
         )
         return signer, None
@@ -41,7 +49,7 @@ def _login_sat(signer):
     from satcfdi.portal import SATFacturaElectronica
 
     session = SATFacturaElectronica(signer)
-    session.fiel_login()
+    session.login()
     return session
 
 

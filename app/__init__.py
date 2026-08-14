@@ -9,6 +9,26 @@ login_manager.login_view = 'auth.login'
 login_manager.login_message = 'Inicia sesion para acceder.'
 
 
+def _ensure_fiel_columns():
+    from sqlalchemy import inspect, text
+    from sqlalchemy.types import LargeBinary
+
+    inspector = inspect(db.engine)
+    try:
+        cols = {c['name'] for c in inspector.get_columns('fiel_credentials')}
+    except Exception:
+        return
+    if 'cer_data' in cols and 'key_data' in cols:
+        return
+
+    col_type = LargeBinary().compile(dialect=db.engine.dialect)
+    with db.engine.begin() as conn:
+        if 'cer_data' not in cols:
+            conn.execute(text(f'ALTER TABLE fiel_credentials ADD COLUMN cer_data {col_type}'))
+        if 'key_data' not in cols:
+            conn.execute(text(f'ALTER TABLE fiel_credentials ADD COLUMN key_data {col_type}'))
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -37,6 +57,7 @@ def create_app():
     with app.app_context():
         from app.models import User
         db.create_all()
+        _ensure_fiel_columns()
 
         if not User.query.filter_by(is_admin=True).first():
             admin = User(
