@@ -51,10 +51,25 @@ def _create_signer(empresa):
 
 
 def _login_sat(signer):
+    import ssl
+    import requests
+    from requests.adapters import HTTPAdapter
     from satcfdi.portal import SATFacturaElectronica
+
+    # Adapter para el SAT: desactiva verificacion SSL y baja el nivel de
+    # seguridad de cifrado (el SAT usa parametros DH antiguos -> dh key too small)
+    class _InsecureAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            ctx.set_ciphers('DEFAULT:@SECLEVEL=0')
+            kwargs['ssl_context'] = ctx
+            return super().init_poolmanager(*args, **kwargs)
 
     session = SATFacturaElectronica(signer)
     session.verify = False
+    session.mount('https://', _InsecureAdapter())
     session.login()
     return session
 
