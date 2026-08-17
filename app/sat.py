@@ -100,9 +100,30 @@ def _parse_cfdi_metadata(xml_bytes, tipo_solicitud):
         tipo_cambio = float(root.get('TipoCambio', 1))
 
         total_impuestos = 0
+        iva_trasladado = 0
+        isr_retenido = 0
+        iva_retenido = 0
         if impuestos is not None:
             total_impuestos = float(impuestos.get('TotalImpuestosTrasladados', 0)) + \
                             float(impuestos.get('TotalImpuestosRetenidos', 0))
+
+            traslados = impuestos.find(f'{{{nsmap}}}Traslados') if nsmap else impuestos.find('Traslados')
+            if traslados is not None:
+                for t in (traslados.findall(f'{{{nsmap}}}Traslado') if nsmap else traslados.findall('Traslado')):
+                    imp_code = t.get('Impuesto', '')
+                    importe = float(t.get('Importe', 0))
+                    if imp_code == '002':
+                        iva_trasladado += importe
+
+            retenciones = impuestos.find(f'{{{nsmap}}}Retenciones') if nsmap else impuestos.find('Retenciones')
+            if retenciones is not None:
+                for r in (retenciones.findall(f'{{{nsmap}}}Retencion') if nsmap else retenciones.findall('Retencion')):
+                    imp_code = r.get('Impuesto', '')
+                    importe = float(r.get('Importe', 0))
+                    if imp_code == '001':
+                        isr_retenido += importe
+                    elif imp_code == '002':
+                        iva_retenido += importe
 
         estado = 'vigente'
 
@@ -118,6 +139,9 @@ def _parse_cfdi_metadata(xml_bytes, tipo_solicitud):
             'subtotal': subtotal,
             'total': total,
             'impuestos': total_impuestos,
+            'iva_trasladado': iva_trasladado,
+            'isr_retenido': isr_retenido,
+            'iva_retenido': iva_retenido,
             'estado': estado,
             'uso_cfdi': uso_cfdi,
             'metodo_pago': metodo_pago,
@@ -271,6 +295,9 @@ def descargar_cfdi():
                             subtotal=metadata['subtotal'],
                             total=metadata['total'],
                             impuestos=metadata['impuestos'],
+                            iva_trasladado=metadata['iva_trasladado'],
+                            isr_retenido=metadata['isr_retenido'],
+                            iva_retenido=metadata['iva_retenido'],
                             estado=metadata['estado'],
                             uso_cfdi=metadata['uso_cfdi'],
                             metodo_pago=metadata['metodo_pago'],
@@ -415,3 +442,45 @@ def api_cfdis(empresa_id):
         'pages': pagination.pages,
         'current_page': page
     })
+
+
+@sat_bp.route('/sat/cancelar-descarga/<int:request_id>', methods=['POST'])
+@login_required
+def cancelar_descarga(request_id):
+    dl = DownloadRequest.query.get_or_404(request_id)
+    empresa = Empresa.query.get_or_404(dl.empresa_id)
+    if empresa.user_id != current_user.id:
+        flash('No tienes acceso.', 'error')
+        return redirect(url_for('dashboard.index'))
+
+    if dl.estado == 'procesando':
+        dl.estado = 'cancelado'
+        dl.mensaje = 'Cancelada por el usuario'
+        db.session.commit()
+        flash('Descarga cancelada.', 'success')
+    else:
+        flash('Solo se pueden cancelar descargas en proceso.', 'error')
+
+    return redirect(url_for('dashboard.ver_empresa', empresa_id=dl.empresa_id))
+
+
+@sat_bp.route('/sat/reprocesar-descarga/<int:request_id>', methods=['POST'])
+@login_required
+def reprocesar_descarga(request_id):
+    dl = DownloadRequest.query.get_or_404(request_id)
+    empresa = Empresa.query.get_or_404(dl.empresa_id)
+    if empresa.user_id != current_user.id:
+        flash('No tienes acceso.', 'error')
+        return redirect(url_for('dashboard.index'))
+
+    if dl.estado not in ('procesando', 'error', 'cancelado'):
+        flash('No se puede reprocesar esta descarga.', 'error')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=dl.empresa_id))
+
+    dl.estado = 'procesando'
+    dl.mensaje = None
+    dl.total_descargados = 0
+    dl.completed_at = None
+    db.session.commit()
+
+    return redirect(url_for('sat.descargar_cfdi'))

@@ -86,13 +86,13 @@ def _get_empresa_stats(empresa_id):
         .filter(extract('month', CFDI.fecha_emision) == mes_actual)\
         .filter(extract('year', CFDI.fecha_emision) == anio_actual).count()
 
-    iva_pagado = db.session.query(func.sum(CFDI.impuestos))\
+    iva_pagado = db.session.query(func.sum(CFDI.iva_trasladado))\
         .filter_by(empresa_id=empresa_id, tipo_comprobante='I', estado='vigente')\
         .filter(extract('month', CFDI.fecha_emision) == mes_actual)\
         .filter(extract('year', CFDI.fecha_emision) == anio_actual)\
         .scalar() or 0
 
-    iva_acreditable = db.session.query(func.sum(CFDI.impuestos))\
+    iva_acreditable = db.session.query(func.sum(CFDI.iva_trasladado))\
         .filter_by(empresa_id=empresa_id, tipo_comprobante='E', estado='vigente')\
         .filter(extract('month', CFDI.fecha_emision) == mes_actual)\
         .filter(extract('year', CFDI.fecha_emision) == anio_actual)\

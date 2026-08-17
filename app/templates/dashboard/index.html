@@ -59,6 +59,7 @@
     <a href="{{ url_for('sat.sincronizar_metadata', empresa_id=empresa_id) }}" class="btn btn-secondary"
        onclick="return confirm('Sincronizar metadata de todos los CFDIs?')">Sincronizar Metadata</a>
     <a href="{{ url_for('reportes.iva', empresa_id=empresa_id) }}" class="btn btn-secondary">Reporte IVA</a>
+    <a href="{{ url_for('reportes.isr', empresa_id=empresa_id) }}" class="btn btn-secondary">Reporte ISR</a>
     <a href="{{ url_for('reportes.exportar_excel', empresa_id=empresa_id) }}" class="btn btn-success">Exportar Excel</a>
     {% endif %}
 </div>
@@ -75,6 +76,7 @@
                     <th>Periodo</th>
                     <th>Estado</th>
                     <th>CFDIs</th>
+                    <th>Accion</th>
                 </tr>
             </thead>
             <tbody>
@@ -89,6 +91,17 @@
                         </span>
                     </td>
                     <td>{{ req.total_descargados }}</td>
+                    <td>
+                        {% if req.estado == 'procesando' %}
+                        <form method="POST" action="{{ url_for('sat.cancelar_descarga', request_id=req.id) }}" style="display:inline">
+                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Cancelar esta descarga?')">Cancelar</button>
+                        </form>
+                        {% elif req.estado in ('error', 'cancelado') %}
+                        <form method="POST" action="{{ url_for('sat.reprocesar_descarga', request_id=req.id) }}" style="display:inline">
+                            <button type="submit" class="btn btn-sm btn-secondary">Reprocesar</button>
+                        </form>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -70,6 +70,9 @@ class CFDI(db.Model):
     subtotal = db.Column(db.Float, default=0)
     total = db.Column(db.Float, default=0)
     impuestos = db.Column(db.Float, default=0)
+    iva_trasladado = db.Column(db.Float, default=0)
+    isr_retenido = db.Column(db.Float, default=0)
+    iva_retenido = db.Column(db.Float, default=0)
     estado = db.Column(db.String(20), default='vigente')  # vigente, cancelado
     uso_cfdi = db.Column(db.String(10))
     metodo_pago = db.Column(db.String(5))

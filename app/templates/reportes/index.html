@@ -11,6 +11,7 @@
         <p>{{ emp.razon_social }}</p>
         <div class="report-links">
             <a href="{{ url_for('reportes.iva', empresa_id=emp.id) }}" class="btn btn-primary">Reporte IVA</a>
+            <a href="{{ url_for('reportes.isr', empresa_id=emp.id) }}" class="btn btn-info">Reporte ISR</a>
             <a href="{{ url_for('reportes.exportar_excel', empresa_id=emp.id) }}" class="btn btn-success">Exportar Excel</a>
             <a href="{{ url_for('reportes.exportar_excel', empresa_id=emp.id, tipo='I') }}" class="btn btn-secondary">Solo Emitidos</a>
             <a href="{{ url_for('reportes.exportar_excel', empresa_id=emp.id, tipo='E') }}" class="btn btn-secondary">Solo Egresos</a>

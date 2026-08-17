@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Reporte IVA - {{ empresa.rfc }}{% endblock %}
+{% block title %}Reporte ISR - {{ empresa.rfc }}{% endblock %}
 {% block content %}
-<h1>Reporte IVA - {{ empresa.rfc }}</h1>
+<h1>Reporte ISR - {{ empresa.rfc }}</h1>
 
 <div class="form-container">
     <form method="GET" class="form-inline">
@@ -31,21 +31,21 @@
 
 <div class="stats-grid">
     <div class="stat-card stat-green">
-        <div class="stat-number">${{ "{:,.2f}".format(iva_cobrado) }}</div>
-        <div class="stat-label">IVA Cobrado (Pagado)</div>
+        <div class="stat-number">${{ "{:,.2f}".format(isr_retenido) }}</div>
+        <div class="stat-label">ISR Retenido</div>
     </div>
     <div class="stat-card stat-purple">
-        <div class="stat-number">${{ "{:,.2f}".format(iva_acreditable) }}</div>
-        <div class="stat-label">IVA Acreditable</div>
+        <div class="stat-number">${{ "{:,.2f}".format(iva_retenido_total) }}</div>
+        <div class="stat-label">IVA Retenido</div>
     </div>
-    <div class="stat-card {% if iva_pagar >= 0 %}stat-cash{% else %}stat-cash-red{% endif %}">
-        <div class="stat-number">${{ "{:,.2f}".format(iva_pagar) }}</div>
-        <div class="stat-label">IVA {% if iva_pagar >= 0 %}a Pagar{% else %}a Favor{% endif %}</div>
+    <div class="stat-card stat-cash">
+        <div class="stat-number">${{ "{:,.2f}".format(isr_retenido + iva_retenido_total) }}</div>
+        <div class="stat-label">Total Retenciones</div>
     </div>
 </div>
 
 <div class="panel">
-    <h3>Detalle de CFDIs del Periodo</h3>
+    <h3>CFDIs con Retenciones en el Periodo</h3>
     {% if cfdis_detalle %}
     <table class="table">
         <thead>
@@ -56,7 +56,8 @@
                 <th>RFC Emisor</th>
                 <th>RFC Receptor</th>
                 <th>Subtotal</th>
-                <th>IVA</th>
+                <th>ISR Retenido</th>
+                <th>IVA Retenido</th>
                 <th>Total</th>
                 <th>Estado</th>
             </tr>
@@ -70,7 +71,8 @@
                 <td>{{ cf.rfc_emisor }}</td>
                 <td>{{ cf.rfc_receptor }}</td>
                 <td class="money">${{ "{:,.2f}".format(cf.subtotal) }}</td>
-                <td class="money">${{ "{:,.2f}".format(cf.iva_trasladado) }}</td>
+                <td class="money">${{ "{:,.2f}".format(cf.isr_retenido) }}</td>
+                <td class="money">${{ "{:,.2f}".format(cf.iva_retenido) }}</td>
                 <td class="money">${{ "{:,.2f}".format(cf.total) }}</td>
                 <td>
                     <span class="badge badge-{{ 'success' if cf.estado == 'vigente' else 'error' }}">
@@ -82,7 +84,7 @@
         </tbody>
     </table>
     {% else %}
-    <p class="empty-state">No hay CFDIs en este periodo.</p>
+    <p class="empty-state">No hay CFDIs con retenciones en este periodo.</p>
     {% endif %}
 </div>
 
