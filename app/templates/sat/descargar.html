@@ -40,6 +40,10 @@
         <div class="form-info">
             <p>Se descargaran todos los CFDIs del SAT para el periodo seleccionado usando tus credenciales FIEL.</p>
             <p>Los CFDIs duplicados seran omitidos automaticamente.</p>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer">
+                <input type="checkbox" id="incluir_pdf" name="incluir_pdf" value="1">
+                Incluir PDF (solicitud adicional al SAT, tarda ~1-2 min mas)
+            </label>
         </div>
 
         <button type="submit" class="btn btn-primary btn-lg" id="btn-descargar">
