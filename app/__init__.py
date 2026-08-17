@@ -40,6 +40,16 @@ def _ensure_fiel_columns():
                 conn.execute(text(f'ALTER TABLE cfdis ADD COLUMN {col_name} {col_type}'))
         _backfill_tax_from_xml(missing)
 
+    new_text_cols = {'conceptos_json', 'pdf_path'}
+    missing_text = new_text_cols - cfdis_cols
+    if missing_text:
+        with db.engine.begin() as conn:
+            if 'conceptos_json' in missing_text:
+                conn.execute(text('ALTER TABLE cfdis ADD COLUMN conceptos_json TEXT'))
+            if 'pdf_path' in missing_text:
+                conn.execute(text('ALTER TABLE cfdis ADD COLUMN pdf_path VARCHAR(500)'))
+        _backfill_conceptos_from_xml()
+
 
 def _backfill_tax_from_xml(missing_cols):
     import xml.etree.ElementTree as ET
@@ -91,6 +101,54 @@ def _backfill_tax_from_xml(missing_cols):
             if 'iva_retenido' in missing_cols:
                 cf.iva_retenido = iva_retenido
             updated += 1
+        except Exception:
+            continue
+
+    if updated:
+        db.session.commit()
+
+
+def _backfill_conceptos_from_xml():
+    import json
+    import xml.etree.ElementTree as ET
+    from app.models import CFDI
+
+    try:
+        cfdis = CFDI.query.filter(
+            CFDI.xml_content.isnot(None),
+            CFDI.conceptos_json.is_(None)
+        ).all()
+    except Exception:
+        return
+
+    updated = 0
+    for cf in cfdis:
+        if not cf.xml_content:
+            continue
+        try:
+            root = ET.fromstring(cf.xml_content.encode('utf-8'))
+            nsmap = None
+            if root.tag.startswith('{'):
+                nsmap = root.tag.split('}')[0].strip('{')
+
+            conceptos_elem = root.find(f'{{{nsmap}}}Conceptos') if nsmap else root.find('Conceptos')
+            if conceptos_elem is None:
+                continue
+
+            conceptos = []
+            for concepto in (conceptos_elem.findall(f'{{{nsmap}}}Concepto') if nsmap else conceptos_elem.findall('Concepto')):
+                conceptos.append({
+                    'claveProdServ': concepto.get('ClaveProdServ', ''),
+                    'cantidad': float(concepto.get('Cantidad', 0)),
+                    'claveUnidad': concepto.get('ClaveUnidad', ''),
+                    'descripcion': concepto.get('Descripcion', ''),
+                    'valorUnitario': float(concepto.get('ValorUnitario', 0)),
+                    'importe': float(concepto.get('Importe', 0)),
+                })
+
+            if conceptos:
+                cf.conceptos_json = json.dumps(conceptos, ensure_ascii=False)
+                updated += 1
         except Exception:
             continue
 

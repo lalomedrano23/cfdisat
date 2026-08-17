@@ -38,6 +38,10 @@
         <div class="stat-number">${{ "{:,.2f}".format(iva_acreditable) }}</div>
         <div class="stat-label">IVA Acreditable</div>
     </div>
+    <div class="stat-card stat-orange">
+        <div class="stat-number">${{ "{:,.2f}".format(isr_total) }}</div>
+        <div class="stat-label">ISR Retenido</div>
+    </div>
     <div class="stat-card {% if iva_pagar >= 0 %}stat-cash{% else %}stat-cash-red{% endif %}">
         <div class="stat-number">${{ "{:,.2f}".format(iva_pagar) }}</div>
         <div class="stat-label">IVA {% if iva_pagar >= 0 %}a Pagar{% else %}a Favor{% endif %}</div>
@@ -57,6 +61,7 @@
                 <th>RFC Receptor</th>
                 <th>Subtotal</th>
                 <th>IVA</th>
+                <th>ISR Ret.</th>
                 <th>Total</th>
                 <th>Estado</th>
             </tr>
@@ -71,6 +76,7 @@
                 <td>{{ cf.rfc_receptor }}</td>
                 <td class="money">${{ "{:,.2f}".format(cf.subtotal) }}</td>
                 <td class="money">${{ "{:,.2f}".format(cf.iva_trasladado) }}</td>
+                <td class="money">${{ "{:,.2f}".format(cf.isr_retenido) }}</td>
                 <td class="money">${{ "{:,.2f}".format(cf.total) }}</td>
                 <td>
                     <span class="badge badge-{{ 'success' if cf.estado == 'vigente' else 'error' }}">

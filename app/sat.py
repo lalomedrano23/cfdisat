@@ -125,6 +125,19 @@ def _parse_cfdi_metadata(xml_bytes, tipo_solicitud):
                     elif imp_code == '002':
                         iva_retenido += importe
 
+        conceptos = []
+        conceptos_elem = root.find(f'{{{nsmap}}}Conceptos') if nsmap else root.find('Conceptos')
+        if conceptos_elem is not None:
+            for concepto in (conceptos_elem.findall(f'{{{nsmap}}}Concepto') if nsmap else conceptos_elem.findall('Concepto')):
+                conceptos.append({
+                    'claveProdServ': concepto.get('ClaveProdServ', ''),
+                    'cantidad': float(concepto.get('Cantidad', 0)),
+                    'claveUnidad': concepto.get('ClaveUnidad', ''),
+                    'descripcion': concepto.get('Descripcion', ''),
+                    'valorUnitario': float(concepto.get('ValorUnitario', 0)),
+                    'importe': float(concepto.get('Importe', 0)),
+                })
+
         estado = 'vigente'
 
         return {
@@ -150,6 +163,7 @@ def _parse_cfdi_metadata(xml_bytes, tipo_solicitud):
             'folio': folio,
             'moneda': moneda,
             'tipo_cambio': tipo_cambio,
+            'conceptos': conceptos,
         }
     except Exception:
         return None
@@ -307,6 +321,7 @@ def descargar_cfdi():
                             moneda=metadata['moneda'],
                             tipo_cambio=metadata['tipo_cambio'],
                             xml_content=xml_bytes.decode('utf-8', errors='ignore'),
+                            conceptos_json=__import__('json').dumps(metadata.get('conceptos', []), ensure_ascii=False) if metadata.get('conceptos') else None,
                         )
                         db.session.add(cf)
                         count += 1
@@ -484,3 +499,77 @@ def reprocesar_descarga(request_id):
     db.session.commit()
 
     return redirect(url_for('sat.descargar_cfdi'))
+
+
+@sat_bp.route('/sat/descargar-xml/<int:cfdi_id>')
+@login_required
+def descargar_xml(cfdi_id):
+    from flask import Response
+    cf = CFDI.query.get_or_404(cfdi_id)
+    empresa = Empresa.query.get_or_404(cf.empresa_id)
+    if empresa.user_id != current_user.id:
+        flash('No tienes acceso.', 'error')
+        return redirect(url_for('dashboard.index'))
+
+    if not cf.xml_content:
+        flash('XML no disponible para este CFDI.', 'error')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=cf.empresa_id))
+
+    filename = f'{cf.uuid}.xml'
+    return Response(
+        cf.xml_content.encode('utf-8'),
+        mimetype='application/xml',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
+
+
+@sat_bp.route('/sat/descargar-pdf/<int:cfdi_id>')
+@login_required
+def descargar_pdf(cfdi_id):
+    from flask import Response
+    import json as _json
+    cf = CFDI.query.get_or_404(cfdi_id)
+    empresa = Empresa.query.get_or_404(cf.empresa_id)
+    if empresa.user_id != current_user.id:
+        flash('No tienes acceso.', 'error')
+        return redirect(url_for('dashboard.index'))
+
+    if cf.pdf_path:
+        upload_dir = os.path.join(current_app.config.get('UPLOAD_FOLDER_CFDIS', 'app/uploads/cfdis'), str(cf.empresa_id))
+        pdf_full = os.path.join(upload_dir, cf.pdf_path)
+        if os.path.exists(pdf_full):
+            with open(pdf_full, 'rb') as f:
+                pdf_bytes = f.read()
+            return Response(
+                pdf_bytes,
+                mimetype='application/pdf',
+                headers={'Content-Disposition': f'attachment; filename="{cf.uuid}.pdf"'}
+            )
+
+    if not cf.xml_content:
+        flash('XML no disponible, no se puede generar PDF.', 'error')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=cf.empresa_id))
+
+    try:
+        from satcfdi.cfdi import CFDI as SatCFDI
+        from satcfdi.render import pdf_bytes as sat_pdf_bytes
+        sat_cfdi = SatCFDI.from_string(cf.xml_content.encode('utf-8'))
+        pdf = sat_pdf_bytes(sat_cfdi)
+
+        upload_dir = os.path.join(current_app.config.get('UPLOAD_FOLDER_CFDIS', 'app/uploads/cfdis'), str(cf.empresa_id))
+        os.makedirs(upload_dir, exist_ok=True)
+        pdf_file = os.path.join(upload_dir, f'{cf.uuid}.pdf')
+        with open(pdf_file, 'wb') as f:
+            f.write(pdf)
+
+        cf.pdf_path = f'{cf.uuid}.pdf'
+        db.session.commit()
+
+        return Response(
+            pdf,
+            mimetype='application/pdf',
+            headers={'Content-Disposition': f'attachment; filename="{cf.uuid}.pdf"'}
+        )
+    except Exception as e:
+        flash(f'Error al generar PDF: {str(e)}', 'error')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=cf.empresa_id))

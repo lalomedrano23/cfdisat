@@ -82,6 +82,8 @@ class CFDI(db.Model):
     moneda = db.Column(db.String(5), default='MXN')
     tipo_cambio = db.Column(db.Float, default=1.0)
     xml_content = db.Column(db.Text)
+    conceptos_json = db.Column(db.Text)
+    pdf_path = db.Column(db.String(500))
     download_date = db.Column(db.DateTime, default=datetime.utcnow)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 

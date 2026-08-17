@@ -122,6 +122,7 @@
                     <th>RFC</th>
                     <th>Total</th>
                     <th>Estado</th>
+                    <th>Archivos</th>
                 </tr>
             </thead>
             <tbody>
@@ -135,6 +136,12 @@
                         <span class="badge badge-{{ 'success' if cf.estado == 'vigente' else 'error' }}">
                             {{ cf.estado }}
                         </span>
+                    </td>
+                    <td>
+                        {% if cf.xml_content %}
+                        <a href="{{ url_for('sat.descargar_xml', cfdi_id=cf.id) }}" class="btn btn-sm btn-secondary" title="Descargar XML">XML</a>
+                        {% endif %}
+                        <a href="{{ url_for('sat.descargar_pdf', cfdi_id=cf.id) }}" class="btn btn-sm btn-secondary" title="Descargar PDF">PDF</a>
                     </td>
                 </tr>
                 {% endfor %}

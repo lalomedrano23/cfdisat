@@ -44,6 +44,12 @@ def iva(empresa_id):
 
     iva_pagar = iva_cobrado - iva_acreditable
 
+    isr_total = db.session.query(func.sum(CFDI.isr_retenido))\
+        .filter_by(empresa_id=empresa_id, estado='vigente')\
+        .filter(extract('month', CFDI.fecha_emision) == month)\
+        .filter(extract('year', CFDI.fecha_emision) == year)\
+        .scalar() or 0
+
     cfdis_detalle = CFDI.query.filter_by(empresa_id=empresa_id, estado='vigente')\
         .filter(extract('month', CFDI.fecha_emision) == month)\
         .filter(extract('year', CFDI.fecha_emision) == year)\
@@ -55,6 +61,7 @@ def iva(empresa_id):
                          iva_cobrado=iva_cobrado,
                          iva_acreditable=iva_acreditable,
                          iva_pagar=iva_pagar,
+                         isr_total=isr_total,
                          cfdis_detalle=cfdis_detalle)
 
 
@@ -143,7 +150,8 @@ def exportar_excel(empresa_id):
         'RFC Emisor', 'Nombre Emisor', 'RFC Receptor', 'Nombre Receptor',
         'Metodo Pago', 'Forma Pago', 'Moneda', 'Tipo Cambio',
         'Subtotal', 'IVA Trasladado', 'ISR Retenido', 'IVA Retenido',
-        'Total Impuestos', 'Total', 'Estado', 'Uso CFDI'
+        'Total Impuestos', 'Total', 'Estado', 'Uso CFDI',
+        'Clave Prod/Serv', 'Cantidad', 'Descripcion Concepto'
     ]
 
     for col, header in enumerate(headers, 1):
@@ -163,52 +171,65 @@ def exportar_excel(empresa_id):
         '14': 'Anticipo', '15': 'Pago por cuenta ajena',
     }
 
-    for row, cf in enumerate(cfdis, 2):
-        data = [
-            cf.uuid,
-            tipo_nombres.get(cf.tipo_comprobante, cf.tipo_comprobante),
-            cf.fecha_emision.strftime('%Y-%m-%d %H:%M') if cf.fecha_emision else '',
-            cf.fecha_timbrado.strftime('%Y-%m-%d %H:%M') if cf.fecha_timbrado else '',
-            cf.serie or '',
-            cf.folio or '',
-            cf.rfc_emisor,
-            cf.nombre_emisor,
-            cf.rfc_receptor,
-            cf.nombre_receptor,
-            metodo_nombres.get(cf.metodo_pago, cf.metodo_pago or ''),
-            forma_nombres.get(cf.forma_pago, cf.forma_pago or ''),
-            cf.moneda,
-            cf.tipo_cambio,
-            cf.subtotal,
-            cf.iva_trasladado,
-            cf.isr_retenido,
-            cf.iva_retenido,
-            cf.impuestos,
-            cf.total,
-            cf.estado.capitalize(),
-            cf.uso_cfdi,
-        ]
-        for col, value in enumerate(data, 1):
-            cell = ws.cell(row=row, column=col, value=value)
-            cell.border = thin_border
-            if col in (15, 16, 17, 18, 19, 20):
-                cell.number_format = '#,##0.00'
-                cell.fill = money_fill
-            if col in (14,):
-                cell.number_format = '#,##0.000000'
+    import json as _json
+    current_row = 2
+    for cf in cfdis:
+        conceptos = []
+        if cf.conceptos_json:
+            try:
+                conceptos = _json.loads(cf.conceptos_json)
+            except Exception:
+                pass
+        if not conceptos:
+            conceptos = [{'claveProdServ': '', 'cantidad': 0, 'descripcion': ''}]
 
-    total_row = len(cfdis) + 2
-    ws.cell(row=total_row, column=15, value=f'=SUM(P2:P{total_row-1})').number_format = '#,##0.00'
-    ws.cell(row=total_row, column=16, value=f'=SUM(Q2:Q{total_row-1})').number_format = '#,##0.00'
-    ws.cell(row=total_row, column=17, value=f'=SUM(R2:R{total_row-1})').number_format = '#,##0.00'
-    ws.cell(row=total_row, column=18, value=f'=SUM(S2:S{total_row-1})').number_format = '#,##0.00'
-    ws.cell(row=total_row, column=19, value=f'=SUM(T2:T{total_row-1})').number_format = '#,##0.00'
-    ws.cell(row=total_row, column=20, value=f'=SUM(U2:U{total_row-1})').number_format = '#,##0.00'
-    for c in range(15, 21):
-        ws.cell(row=total_row, column=c).font = Font(bold=True)
-        ws.cell(row=total_row, column=c).border = thin_border
+        for concepto in conceptos:
+            data = [
+                cf.uuid,
+                tipo_nombres.get(cf.tipo_comprobante, cf.tipo_comprobante),
+                cf.fecha_emision.strftime('%Y-%m-%d %H:%M') if cf.fecha_emision else '',
+                cf.fecha_timbrado.strftime('%Y-%m-%d %H:%M') if cf.fecha_timbrado else '',
+                cf.serie or '',
+                cf.folio or '',
+                cf.rfc_emisor,
+                cf.nombre_emisor,
+                cf.rfc_receptor,
+                cf.nombre_receptor,
+                metodo_nombres.get(cf.metodo_pago, cf.metodo_pago or ''),
+                forma_nombres.get(cf.forma_pago, cf.forma_pago or ''),
+                cf.moneda,
+                cf.tipo_cambio,
+                cf.subtotal,
+                cf.iva_trasladado,
+                cf.isr_retenido,
+                cf.iva_retenido,
+                cf.impuestos,
+                cf.total,
+                cf.estado.capitalize(),
+                cf.uso_cfdi,
+                concepto.get('claveProdServ', ''),
+                concepto.get('cantidad', ''),
+                concepto.get('descripcion', ''),
+            ]
+            for col, value in enumerate(data, 1):
+                cell = ws.cell(row=current_row, column=col, value=value)
+                cell.border = thin_border
+                if col in (15, 16, 17, 18, 19, 20):
+                    cell.number_format = '#,##0.00'
+                    cell.fill = money_fill
+                if col in (14,):
+                    cell.number_format = '#,##0.000000'
+            current_row += 1
 
-    ws.auto_filter.ref = f'A1:U{len(cfdis)+1}'
+    total_row = current_row
+    money_cols = {15: 'O', 16: 'P', 17: 'Q', 18: 'R', 19: 'S', 20: 'T'}
+    for col_num, col_letter in money_cols.items():
+        cell = ws.cell(row=total_row, column=col_num, value=f'=SUM({col_letter}2:{col_letter}{total_row-1})')
+        cell.number_format = '#,##0.00'
+        cell.font = Font(bold=True)
+        cell.border = thin_border
+
+    ws.auto_filter.ref = f'A1:Y{current_row-1}'
 
     for col in ws.columns:
         max_len = 0
