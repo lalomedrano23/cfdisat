@@ -4,7 +4,7 @@ import base64
 import io
 import zipfile
 from datetime import datetime
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app, Response
 from flask_login import login_required, current_user
 from app import db
 from app.models import Empresa, FielCredentials, CFDI, DownloadRequest
@@ -655,3 +655,86 @@ def descargar_pdf(cfdi_id):
     except Exception as e:
         flash(f'Error al generar PDF: {str(e)}', 'error')
         return redirect(url_for('dashboard.ver_empresa', empresa_id=cf.empresa_id))
+
+
+@sat_bp.route('/sat/descarga-masiva', methods=['POST'])
+@login_required
+def descarga_masiva():
+    empresa_id = request.form.get('empresa_id', type=int)
+    formato = request.form.get('formato', 'xml')
+    cfdis_ids = request.form.getlist('cfdis')
+
+    if not empresa_id or not cfdis_ids:
+        flash('Seleccione al menos un CFDI.', 'error')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id or 0))
+
+    empresa = Empresa.query.get_or_404(empresa_id)
+    if empresa.user_id != current_user.id:
+        flash('No tienes acceso.', 'error')
+        return redirect(url_for('dashboard.index'))
+
+    cfdis = CFDI.query.filter(
+        CFDI.id.in_([int(x) for x in cfdis_ids]),
+        CFDI.empresa_id == empresa_id
+    ).all()
+
+    if not cfdis:
+        flash('No se encontraron CFDIs seleccionados.', 'error')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id))
+
+    include_xml = formato in ('xml', 'ambos')
+    include_pdf = formato in ('pdf', 'ambos')
+
+    buf = io.BytesIO()
+    added = 0
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for cf in cfdis:
+            if include_xml and cf.xml_content:
+                zf.writestr(f'{cf.uuid}.xml', cf.xml_content.encode('utf-8'))
+                added += 1
+
+            if include_pdf:
+                if cf.pdf_path:
+                    upload_dir = os.path.join(
+                        current_app.config.get('UPLOAD_FOLDER_CFDIS', 'app/uploads/cfdis'),
+                        str(cf.empresa_id))
+                    pdf_full = os.path.join(upload_dir, cf.pdf_path)
+                    if os.path.exists(pdf_full):
+                        zf.write(pdf_full, f'{cf.uuid}.pdf')
+                        added += 1
+                elif cf.xml_content:
+                    try:
+                        from satcfdi.cfdi import CFDI as SatCFDI
+                        from satcfdi.render import pdf_bytes as sat_pdf_bytes
+                        sat_cfdi = SatCFDI.from_string(cf.xml_content.encode('utf-8'))
+                        pdf = sat_pdf_bytes(sat_cfdi)
+                        zf.writestr(f'{cf.uuid}.pdf', pdf)
+
+                        upload_dir = os.path.join(
+                            current_app.config.get('UPLOAD_FOLDER_CFDIS', 'app/uploads/cfdis'),
+                            str(cf.empresa_id))
+                        os.makedirs(upload_dir, exist_ok=True)
+                        pdf_file = os.path.join(upload_dir, f'{cf.uuid}.pdf')
+                        with open(pdf_file, 'wb') as f:
+                            f.write(pdf)
+                        cf.pdf_path = f'{cf.uuid}.pdf'
+                        added += 1
+                    except Exception:
+                        pass
+
+    if added == 0:
+        flash('No hay archivos disponibles para los CFDIs seleccionados.', 'error')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id))
+
+    db.session.commit()
+    buf.seek(0)
+
+    tipo_label = {'xml': 'XML', 'pdf': 'PDF', 'ambos': 'XML_PDF'}.get(formato, 'XML')
+    ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    filename = f'CFDIS_{empresa.rfc}_{ts}_{tipo_label}.zip'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
