@@ -181,26 +181,41 @@ def create_app():
     app.register_blueprint(reportes_bp)
     app.register_blueprint(admin_bp)
 
+    @app.errorhandler(500)
+    def internal_error(e):
+        db.session.rollback()
+        return render_template('500.html'), 500
+
+    @app.errorhandler(404)
+    def not_found(e):
+        return render_template('404.html'), 404
+
     with app.app_context():
         from app.models import User
-        db.create_all()
-        _ensure_fiel_columns()
+        try:
+            db.create_all()
+            _ensure_fiel_columns()
+        except Exception as e:
+            print(f'ADVERTENCIA: Error en migracion: {e}')
 
-        if not User.query.filter_by(is_admin=True).first():
-            admin = User(
-                email='admin@cfdisat.local',
-                nombre='Administrador',
-                is_admin=True,
-                activo=True,
-            )
-            admin.set_password('admin123')
-            db.session.add(admin)
-            db.session.commit()
-            print('========================================')
-            print('  Usuario administrador creado:')
-            print('  Email:    admin@cfdisat.local')
-            print('  Password: admin123')
-            print('  CAMBIA ESTA CONTRASENA DESPUES!')
-            print('========================================')
+        try:
+            if not User.query.filter_by(is_admin=True).first():
+                admin = User(
+                    email='admin@cfdisat.local',
+                    nombre='Administrador',
+                    is_admin=True,
+                    activo=True,
+                )
+                admin.set_password('admin123')
+                db.session.add(admin)
+                db.session.commit()
+                print('========================================')
+                print('  Usuario administrador creado:')
+                print('  Email:    admin@cfdisat.local')
+                print('  Password: admin123')
+                print('  CAMBIA ESTA CONTRASENA DESPUES!')
+                print('========================================')
+        except Exception as e:
+            print(f'ADVERTENCIA: Error creando admin: {e}')
 
     return app

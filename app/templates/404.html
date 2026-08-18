@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>No encontrado - CFDISAT</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <main class="container" style="text-align:center;padding:60px 20px">
+        <h1 style="font-size:48px;color:#6c757d;margin-bottom:16px">Pagina no encontrada</h1>
+        <p style="font-size:18px;color:#666;margin-bottom:24px">La pagina que buscas no existe.</p>
+        <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary">Volver al Dashboard</a>
+    </main>
+</body>
+</html>

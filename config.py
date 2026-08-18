@@ -43,3 +43,7 @@ class Config:
     UPLOAD_FOLDER_FIEL = os.path.join(BASE_DIR, 'app', 'uploads', 'fiel')
     UPLOAD_FOLDER_CFDIS = os.path.join(BASE_DIR, 'app', 'uploads', 'cfdis')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_pre_ping': True,
+        'pool_recycle': 300,
+    }
