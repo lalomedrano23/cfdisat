@@ -183,11 +183,13 @@ def create_app():
 
     @app.errorhandler(500)
     def internal_error(e):
+        from flask import render_template
         db.session.rollback()
         return render_template('500.html'), 500
 
     @app.errorhandler(404)
     def not_found(e):
+        from flask import render_template
         return render_template('404.html'), 404
 
     with app.app_context():

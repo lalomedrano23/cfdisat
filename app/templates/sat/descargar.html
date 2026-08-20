@@ -52,6 +52,51 @@
     </form>
 </div>
 
+<div class="form-container" style="margin-top:16px">
+    <div class="form-card">
+        <h3 style="margin-bottom:12px">Probar conexion SAT</h3>
+        <p style="color:#666;margin-bottom:12px">Verifica que tus credenciales FIEL funcionan correctamente antes de descargar.</p>
+        <div style="display:flex;gap:10px;align-items:center">
+            <select id="probar-empresa-id" style="padding:8px;border:1px solid #ddd;border-radius:4px">
+                {% for emp in empresas %}
+                <option value="{{ emp.id }}">{{ emp.rfc }} - {{ emp.razon_social }}</option>
+                {% endfor %}
+            </select>
+            <button type="button" class="btn btn-secondary" id="btn-probar" onclick="probarConexion()">Probar conexion</button>
+        </div>
+        <div id="probar-resultado" style="margin-top:12px;display:none;padding:10px;border-radius:4px;font-size:14px"></div>
+    </div>
+</div>
+
+<script>
+function probarConexion() {
+    var eid = document.getElementById('probar-empresa-id').value;
+    var btn = document.getElementById('btn-probar');
+    var div = document.getElementById('probar-resultado');
+    if (!eid) { alert('Selecciona una empresa'); return; }
+    btn.disabled = true; btn.textContent = 'Probando...';
+    div.style.display = 'none';
+    fetch('/sat/probar-conexion/' + eid, {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            div.style.display = 'block';
+            if (data.ok) {
+                div.style.background = '#d4edda'; div.style.color = '#155724';
+                div.textContent = data.mensaje;
+            } else {
+                div.style.background = '#f8d7da'; div.style.color = '#721c24';
+                div.textContent = 'Error: ' + data.error;
+            }
+        })
+        .catch(function(e) {
+            div.style.display = 'block';
+            div.style.background = '#f8d7da'; div.style.color = '#721c24';
+            div.textContent = 'Error de conexion: ' + e;
+        })
+        .finally(function() { btn.disabled = false; btn.textContent = 'Probar conexion'; });
+}
+</script>
+
 <div class="info-cards">
     <div class="info-card">
         <h3>CFDIs Emitidos</h3>

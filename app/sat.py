@@ -169,6 +169,46 @@ def _parse_cfdi_metadata(xml_bytes, tipo_solicitud):
         return None
 
 
+@sat_bp.route('/sat/probar-conexion/<int:empresa_id>', methods=['POST'])
+@login_required
+def probar_conexion(empresa_id):
+    empresa = Empresa.query.get_or_404(empresa_id)
+    if empresa.user_id != current_user.id:
+        return jsonify({'ok': False, 'error': 'No tienes acceso.'}), 403
+
+    try:
+        signer, error = _create_signer(empresa)
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
+
+        from satcfdi.pacs.sat import SAT
+        sat = SAT(signer=signer)
+
+        from datetime import date, timedelta
+        hoy = date.today()
+        inicio = hoy - timedelta(days=7)
+
+        solicitud = sat.recover_comprobante_emitted_request(
+            fecha_inicial=inicio, fecha_final=hoy,
+            tipo_solicitud='CFDI')
+
+        cod = solicitud.get('CodEstatus', '')
+        id_sol = solicitud.get('IdSolicitud', '')
+        msg = solicitud.get('Mensaje', '')
+
+        if cod == '5004':
+            return jsonify({'ok': True, 'mensaje': 'Conexion SAT exitosa. No hay CFDIs emitidos en los ultimos 7 dias.', 'id_solicitud': id_sol})
+        elif cod in ('5000', ''):
+            return jsonify({'ok': True, 'mensaje': f'Conexion SAT exitosa. Solicitud {id_sol} creada correctamente.', 'id_solicitud': id_sol})
+        else:
+            return jsonify({'ok': False, 'error': f'SAT respondio CodEstatus {cod}: {msg}', 'respuesta': solicitud}), 400
+
+    except ImportError:
+        return jsonify({'ok': False, 'error': 'satcfdi no esta instalado en el servidor.'}), 500
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @sat_bp.route('/sat/descargar', methods=['GET', 'POST'])
 @login_required
 def descargar_cfdi():
