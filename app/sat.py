@@ -312,7 +312,19 @@ def descargar_cfdi():
                 estado_solicitud = st.get('EstadoSolicitud')
                 if estado_solicitud == int(EstadoSolicitud.TERMINADA):
                     break
-                if estado_solicitud in (int(EstadoSolicitud.ERROR), int(EstadoSolicitud.RECHAZADA), int(EstadoSolicitud.VENCIDA)):
+                if estado_solicitud == int(EstadoSolicitud.RECHAZADA):
+                    num_cfdis = st.get('NumeroCFDIs', 0)
+                    id_paq = st.get('IdsPaquetes') or []
+                    if num_cfdis == 0 and len(id_paq) == 0:
+                        request_dl.estado = 'completado'
+                        request_dl.total_descargados = 0
+                        request_dl.mensaje = 'No se encontraron CFDIs con esos parametros.'
+                        request_dl.completed_at = datetime.utcnow()
+                        db.session.commit()
+                        flash('Descarga completada: 0 CFDIs (el SAT no encontro coincidencias).', 'success')
+                        return redirect(url_for('sat.descargar_cfdi'))
+                    raise Exception(f'El SAT rechazo la solicitud de descarga: {st}')
+                if estado_solicitud in (int(EstadoSolicitud.ERROR), int(EstadoSolicitud.VENCIDA)):
                     raise Exception(f'El SAT rechazo la solicitud de descarga: {st}')
             else:
                 raise Exception('El SAT tarda demasiado; la solicitud sigue en proceso.')
