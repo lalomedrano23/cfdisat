@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import func, extract
 from app import db
@@ -11,20 +11,29 @@ dashboard_bp = Blueprint('dashboard', __name__)
 @dashboard_bp.route('/')
 @login_required
 def index():
-    empresas = Empresa.query.filter_by(user_id=current_user.id).all()
-    empresa_id = None
+    try:
+        empresas = Empresa.query.filter_by(user_id=current_user.id).all()
+    except Exception as e:
+        current_app.logger.error(f'Dashboard DB error: {e}')
+        db.session.rollback()
+        return render_template('500.html'), 500
 
+    empresa_id = None
     stats = {}
     cfdis_recientes = []
     download_requests = []
 
     if empresas:
         empresa_id = empresas[0].id
-        stats = _get_empresa_stats(empresa_id)
-        cfdis_recientes = CFDI.query.filter_by(empresa_id=empresa_id)\
-            .order_by(CFDI.fecha_emision.desc()).limit(10).all()
-        download_requests = DownloadRequest.query.filter_by(empresa_id=empresa_id)\
-            .order_by(DownloadRequest.created_at.desc()).limit(5).all()
+        try:
+            stats = _get_empresa_stats(empresa_id)
+            cfdis_recientes = CFDI.query.filter_by(empresa_id=empresa_id)\
+                .order_by(CFDI.fecha_emision.desc()).limit(10).all()
+            download_requests = DownloadRequest.query.filter_by(empresa_id=empresa_id)\
+                .order_by(DownloadRequest.created_at.desc()).limit(5).all()
+        except Exception as e:
+            current_app.logger.error(f'Dashboard data error: {e}')
+            db.session.rollback()
 
     return render_template('dashboard/index.html',
                          empresas=empresas,
@@ -37,18 +46,30 @@ def index():
 @dashboard_bp.route('/empresa/<int:empresa_id>')
 @login_required
 def ver_empresa(empresa_id):
-    empresa = Empresa.query.get_or_404(empresa_id)
+    try:
+        empresa = Empresa.query.get_or_404(empresa_id)
+    except Exception as e:
+        current_app.logger.error(f'Empresa not found: {empresa_id} - {e}')
+        return render_template('404.html'), 404
+
     if empresa.user_id != current_user.id:
         from flask import flash, redirect, url_for
         flash('No tienes acceso.', 'error')
         return redirect(url_for('dashboard.index'))
 
     empresas = Empresa.query.filter_by(user_id=current_user.id).all()
-    stats = _get_empresa_stats(empresa_id)
-    cfdis_recientes = CFDI.query.filter_by(empresa_id=empresa_id)\
-        .order_by(CFDI.fecha_emision.desc()).limit(20).all()
-    download_requests = DownloadRequest.query.filter_by(empresa_id=empresa_id)\
-        .order_by(DownloadRequest.created_at.desc()).limit(10).all()
+    try:
+        stats = _get_empresa_stats(empresa_id)
+        cfdis_recientes = CFDI.query.filter_by(empresa_id=empresa_id)\
+            .order_by(CFDI.fecha_emision.desc()).limit(20).all()
+        download_requests = DownloadRequest.query.filter_by(empresa_id=empresa_id)\
+            .order_by(DownloadRequest.created_at.desc()).limit(10).all()
+    except Exception as e:
+        current_app.logger.error(f'Ver empresa data error: {e}')
+        db.session.rollback()
+        stats = {}
+        cfdis_recientes = []
+        download_requests = []
 
     return render_template('dashboard/index.html',
                          empresas=empresas,

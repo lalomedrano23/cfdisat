@@ -157,10 +157,15 @@ def _backfill_conceptos_from_xml():
 
 
 def create_app():
+    import logging
+    import os
+
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    import os
+    logging.basicConfig(level=logging.INFO)
+    app.logger.setLevel(logging.INFO)
+
     os.makedirs(app.config['UPLOAD_FOLDER_FIEL'], exist_ok=True)
     os.makedirs(app.config['UPLOAD_FOLDER_CFDIS'], exist_ok=True)
 
@@ -183,8 +188,12 @@ def create_app():
 
     @app.errorhandler(500)
     def internal_error(e):
-        from flask import render_template
-        db.session.rollback()
+        from flask import render_template, request
+        app.logger.error(f'500 error: {request.method} {request.path} - {e}')
+        try:
+            db.session.rollback()
+        except Exception:
+            db.session.remove()
         return render_template('500.html'), 500
 
     @app.errorhandler(404)
@@ -192,13 +201,22 @@ def create_app():
         from flask import render_template
         return render_template('404.html'), 404
 
+    @app.route('/health')
+    def health():
+        try:
+            db.session.execute(db.text('SELECT 1'))
+            return 'OK', 200
+        except Exception as e:
+            app.logger.error(f'Health check failed: {e}')
+            return 'DB ERROR', 500
+
     with app.app_context():
         from app.models import User
         try:
             db.create_all()
             _ensure_fiel_columns()
         except Exception as e:
-            print(f'ADVERTENCIA: Error en migracion: {e}')
+            app.logger.warning(f'Migration error: {e}')
 
         try:
             if not User.query.filter_by(is_admin=True).first():
@@ -211,13 +229,8 @@ def create_app():
                 admin.set_password('admin123')
                 db.session.add(admin)
                 db.session.commit()
-                print('========================================')
-                print('  Usuario administrador creado:')
-                print('  Email:    admin@cfdisat.local')
-                print('  Password: admin123')
-                print('  CAMBIA ESTA CONTRASENA DESPUES!')
-                print('========================================')
+                app.logger.info('Admin user created: admin@cfdisat.local')
         except Exception as e:
-            print(f'ADVERTENCIA: Error creando admin: {e}')
+            app.logger.warning(f'Admin creation error: {e}')
 
     return app
