@@ -15,8 +15,8 @@ sat_bp = Blueprint('sat', __name__)
 
 
 def _create_signer(empresa):
-    from OpenSSL.crypto import load_certificate, FILETYPE_PEM
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    from OpenSSL.crypto import load_certificate, FILETYPE_PEM, FILETYPE_ASN1
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_der_private_key
 
     fiel = FielCredentials.query.filter_by(empresa_id=empresa.id).first()
     if not fiel:
@@ -26,15 +26,33 @@ def _create_signer(empresa):
         return None, 'FIEL incompleta: suba de nuevo los archivos .cer y .key.'
 
     try:
-        cer_pem = fiel.cer_data if isinstance(fiel.cer_data, bytes) else fiel.cer_data.encode('latin-1')
-        key_pem = fiel.key_data if isinstance(fiel.key_data, bytes) else fiel.key_data.encode('latin-1')
+        cer_raw = fiel.cer_data if isinstance(fiel.cer_data, bytes) else fiel.cer_data.encode('latin-1')
+        key_raw = fiel.key_data if isinstance(fiel.key_data, bytes) else fiel.key_data.encode('latin-1')
 
-        cert = load_certificate(FILETYPE_PEM, cer_pem)
-        private_key = load_pem_private_key(key_pem, password=None)
+        is_pem_cert = b'-----BEGIN CERTIFICATE-----' in cer_raw
+        is_pem_key = b'-----BEGIN' in key_raw
+
+        if is_pem_cert:
+            cert = load_certificate(FILETYPE_PEM, cer_raw)
+            cer_for_sat = cer_raw
+        else:
+            cert = load_certificate(FILETYPE_ASN1, cer_raw)
+            from OpenSSL.crypto import dump_certificate, FILETYPE_PEM
+            cer_for_sat = dump_certificate(FILETYPE_PEM, cert)
 
         password = decrypt_password(fiel.password_encrypted)
+        password_bytes = password.encode('utf-8') if password else None
+
+        if is_pem_key:
+            private_key = load_pem_private_key(key_raw, password=password_bytes)
+            key_for_sat = key_raw
+        else:
+            private_key = load_der_private_key(key_raw, password=password_bytes)
+            from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
+            key_for_sat = private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+
         from satcfdi import Certificate, Key
-        signer = (Certificate(cer_pem), Key(key_pem, password))
+        signer = (Certificate(cer_for_sat), Key(key_for_sat, password))
         return signer, None
     except Exception as e:
         return None, f'Error al cargar FIEL: {str(e)}'
