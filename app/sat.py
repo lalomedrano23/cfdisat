@@ -34,25 +34,19 @@ def _create_signer(empresa):
 
         if is_pem_cert:
             cert = load_certificate(FILETYPE_PEM, cer_raw)
-            cer_for_sat = cer_raw
         else:
             cert = load_certificate(FILETYPE_ASN1, cer_raw)
-            from OpenSSL.crypto import dump_certificate, FILETYPE_PEM
-            cer_for_sat = dump_certificate(FILETYPE_PEM, cert)
 
         password = decrypt_password(fiel.password_encrypted)
         password_bytes = password.encode('utf-8') if password else None
 
         if is_pem_key:
             private_key = load_pem_private_key(key_raw, password=password_bytes)
-            key_for_sat = key_raw
         else:
             private_key = load_der_private_key(key_raw, password=password_bytes)
-            from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
-            key_for_sat = private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
 
-        from satcfdi import Certificate, Key
-        signer = (Certificate(cer_for_sat), Key(key_for_sat, password))
+        from satcfdi.models.signer import Signer
+        signer = Signer(certificate=cert, key=private_key)
         return signer, None
     except Exception as e:
         return None, f'Error al cargar FIEL: {str(e)}'
