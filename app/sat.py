@@ -250,6 +250,192 @@ def descargar_cfdi():
     return render_template('sat/descargar.html', empresas=empresas)
 
 
+def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolicitud, EstadoComprobante, logger, incluir_pdf=False, app=None):
+    solicitar = _get_solicitar_fn(sat, tipo, fecha_inicio_d, fecha_fin_d, 'CFDI')
+
+    solicitud = None
+    ultimo_error = None
+    for estado in (EstadoComprobante.TODOS, EstadoComprobante.VIGENTE):
+        try:
+            solicitud = solicitar(estado)
+            if solicitud.get('CodEstatus', '5000') == '5000':
+                break
+            if solicitud.get('CodEstatus') == '5004':
+                break
+            ultimo_error = solicitud
+        except Exception as e:
+            ultimo_error = e
+    if solicitud is None:
+        raise Exception(f'El SAT rechazo la solicitud de descarga ({tipo}): {ultimo_error}')
+
+    logger.info(f"[BG] Solicitud {tipo} respuesta: {solicitud}")
+
+    if solicitud.get('CodEstatus') == '5004':
+        return 0, 0
+
+    id_solicitud = solicitud['IdSolicitud']
+    logger.info(f"[BG] ID solicitud {tipo}: {id_solicitud}, esperando...")
+
+    st = None
+    for _ in range(25):
+        time.sleep(15)
+        st = sat.recover_comprobante_status(id_solicitud)
+        estado_solicitud = st.get('EstadoSolicitud')
+        if estado_solicitud == int(EstadoSolicitud.TERMINADA):
+            break
+        if estado_solicitud == int(EstadoSolicitud.RECHAZADA):
+            num_cfdis = st.get('NumeroCFDIs', 0)
+            id_paq = st.get('IdsPaquetes') or []
+            if num_cfdis == 0 and len(id_paq) == 0:
+                return 0, 0
+            raise Exception(f'El SAT rechazo la solicitud ({tipo}): {st}')
+        if estado_solicitud in (int(EstadoSolicitud.ERROR), int(EstadoSolicitud.VENCIDA)):
+            raise Exception(f'El SAT rechazo la solicitud ({tipo}): {st}')
+    else:
+        raise Exception(f'El SAT tarda demasiado ({tipo}); la solicitud sigue en proceso.')
+
+    logger.info(f"[BG] SAT terminado {tipo}: paquetes={st.get('IdsPaquetes') or []}")
+
+    count = 0
+    for id_paquete in (st.get('IdsPaquetes') or []):
+        _, paquete_b64 = sat.recover_comprobante_download(id_paquete)
+        if not paquete_b64:
+            continue
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(paquete_b64))) as paquete:
+            for nombre in paquete.namelist():
+                if not nombre.lower().endswith('.xml'):
+                    continue
+                xml_bytes = paquete.read(nombre)
+                metadata = _parse_cfdi_metadata(xml_bytes, tipo)
+                if not metadata or not metadata['uuid']:
+                    continue
+                existing = CFDI.query.filter_by(
+                    empresa_id=empresa.id,
+                    uuid=metadata['uuid']
+                ).first()
+                if existing:
+                    continue
+
+                cf = CFDI(
+                    empresa_id=empresa.id,
+                    uuid=metadata['uuid'],
+                    tipo_comprobante=metadata['tipo_comprobante'],
+                    fecha_emision=datetime.fromisoformat(metadata['fecha_emision'].replace('T', ' ')) if metadata['fecha_emision'] else None,
+                    fecha_timbrado=datetime.fromisoformat(metadata['fecha_timbrado'].replace('T', ' ')) if metadata.get('fecha_timbrado') else None,
+                    rfc_emisor=metadata['rfc_emisor'],
+                    nombre_emisor=metadata['nombre_emisor'],
+                    rfc_receptor=metadata['rfc_receptor'],
+                    nombre_receptor=metadata['nombre_receptor'],
+                    subtotal=metadata['subtotal'],
+                    total=metadata['total'],
+                    impuestos=metadata['impuestos'],
+                    iva_trasladado=metadata['iva_trasladado'],
+                    isr_retenido=metadata['isr_retenido'],
+                    iva_retenido=metadata['iva_retenido'],
+                    estado=metadata['estado'],
+                    uso_cfdi=metadata['uso_cfdi'],
+                    metodo_pago=metadata['metodo_pago'],
+                    forma_pago=metadata['forma_pago'],
+                    serie=metadata.get('serie', ''),
+                    folio=metadata.get('folio', ''),
+                    moneda=metadata['moneda'],
+                    tipo_cambio=metadata['tipo_cambio'],
+                    xml_content=xml_bytes.decode('utf-8', errors='ignore'),
+                    conceptos_json=__import__('json').dumps(metadata.get('conceptos', []), ensure_ascii=False) if metadata.get('conceptos') else None,
+                )
+                db.session.add(cf)
+                count += 1
+
+    pdf_count = 0
+    if incluir_pdf and count > 0 and app:
+        pdf_count = _descargar_pdf_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolicitud, EstadoComprobante, app, logger)
+
+    return count, pdf_count
+
+
+def _descargar_pdf_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolicitud, EstadoComprobante, app, logger):
+    try:
+        solicitar_pdf = _get_solicitar_fn(sat, tipo, fecha_inicio_d, fecha_fin_d, 'PDF')
+
+        solicitud_pdf = None
+        for estado in (EstadoComprobante.TODOS, EstadoComprobante.VIGENTE):
+            try:
+                solicitud_pdf = solicitar_pdf(estado)
+                if solicitud_pdf.get('CodEstatus', '5000') == '5000':
+                    break
+                if solicitud_pdf.get('CodEstatus') == '5004':
+                    break
+            except Exception:
+                continue
+
+        if not solicitud_pdf or solicitud_pdf.get('CodEstatus') == '5004':
+            return 0
+
+        id_solicitud_pdf = solicitud_pdf['IdSolicitud']
+        st_pdf = None
+        for _ in range(25):
+            time.sleep(15)
+            st_pdf = sat.recover_comprobante_status(id_solicitud_pdf)
+            if st_pdf.get('EstadoSolicitud') == int(EstadoSolicitud.TERMINADA):
+                break
+            if st_pdf.get('EstadoSolicitud') in (int(EstadoSolicitud.ERROR), int(EstadoSolicitud.RECHAZADA), int(EstadoSolicitud.VENCIDA)):
+                break
+        else:
+            return 0
+
+        if not st_pdf or st_pdf.get('EstadoSolicitud') != int(EstadoSolicitud.TERMINADA):
+            return 0
+
+        cfdis_empresa = {cf.uuid: cf for cf in CFDI.query.filter_by(empresa_id=empresa.id).all()}
+        upload_dir = os.path.join(app.config.get('UPLOAD_FOLDER_CFDIS', 'app/uploads/cfdis'), str(empresa.id))
+        os.makedirs(upload_dir, exist_ok=True)
+        pdf_count = 0
+
+        for id_paquete_pdf in (st_pdf.get('IdsPaquetes') or []):
+            _, paquete_pdf_b64 = sat.recover_comprobante_download(id_paquete_pdf)
+            if not paquete_pdf_b64:
+                continue
+            try:
+                with zipfile.ZipFile(io.BytesIO(base64.b64decode(paquete_pdf_b64))) as paquete_pdf:
+                    for nombre_pdf in paquete_pdf.namelist():
+                        if not nombre_pdf.lower().endswith('.pdf'):
+                            continue
+                        pdf_bytes_data = paquete_pdf.read(nombre_pdf)
+                        uuid_pdf = nombre_pdf.rsplit('.', 1)[0]
+                        cf_pdf = cfdis_empresa.get(uuid_pdf)
+                        if cf_pdf:
+                            pdf_file = os.path.join(upload_dir, f'{uuid_pdf}.pdf')
+                            with open(pdf_file, 'wb') as f:
+                                f.write(pdf_bytes_data)
+                            cf_pdf.pdf_path = f'{uuid_pdf}.pdf'
+                            pdf_count += 1
+            except zipfile.BadZipFile:
+                continue
+        db.session.commit()
+        return pdf_count
+    except Exception:
+        return 0
+
+
+def _get_solicitar_fn(sat, tipo, fecha_inicio_d, fecha_fin_d, tipo_solicitud):
+    if tipo == 'recibidos':
+        return lambda estado: sat.recover_comprobante_received_request(
+            fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
+            tipo_solicitud=tipo_solicitud, estado_comprobante=estado)
+    elif tipo == 'retenciones_emitidas':
+        return lambda estado: sat.recover_retencion_emitted_request(
+            fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
+            tipo_solicitud=tipo_solicitud, estado_comprobante=estado)
+    elif tipo == 'retenciones_recibidas':
+        return lambda estado: sat.recover_retencion_received_request(
+            fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
+            tipo_solicitud=tipo_solicitud, estado_comprobante=estado)
+    else:
+        return lambda estado: sat.recover_comprobante_emitted_request(
+            fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
+            tipo_solicitud=tipo_solicitud, estado_comprobante=estado)
+
+
 def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fecha_fin, incluir_pdf):
     import logging
     logger = logging.getLogger(__name__)
@@ -281,213 +467,24 @@ def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fech
             sat = SAT(signer=signer)
             logger.info(f"[BG] SAT signer creado OK, solicitando descarga...")
 
-            if tipo == 'recibidos':
-                def solicitar(estado):
-                    return sat.recover_comprobante_received_request(
-                        fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
-                        tipo_solicitud='CFDI', estado_comprobante=estado)
-            elif tipo == 'retenciones_emitidas':
-                def solicitar(estado):
-                    return sat.recover_retencion_emitted_request(
-                        fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
-                        tipo_solicitud='CFDI', estado_comprobante=estado)
-            elif tipo == 'retenciones_recibidas':
-                def solicitar(estado):
-                    return sat.recover_retencion_received_request(
-                        fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
-                        tipo_solicitud='CFDI', estado_comprobante=estado)
+            if tipo == 'todos':
+                tipos = ['emitidos', 'recibidos']
             else:
-                def solicitar(estado):
-                    return sat.recover_comprobante_emitted_request(
-                        fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
-                        tipo_solicitud='CFDI', estado_comprobante=estado)
+                tipos = [tipo]
 
-            solicitud = None
-            ultimo_error = None
-            for estado in (EstadoComprobante.TODOS, EstadoComprobante.VIGENTE):
-                try:
-                    solicitud = solicitar(estado)
-                    if solicitud.get('CodEstatus', '5000') == '5000':
-                        break
-                    if solicitud.get('CodEstatus') == '5004':
-                        break
-                    ultimo_error = solicitud
-                except Exception as e:
-                    ultimo_error = e
-            if solicitud is None:
-                raise Exception(f'El SAT rechazo la solicitud de descarga: {ultimo_error}')
-
-            logger.info(f"[BG] Solicitud SAT respuesta: {solicitud}")
-
-            if solicitud.get('CodEstatus') == '5004':
-                request_dl.estado = 'completado'
-                request_dl.total_descargados = 0
-                request_dl.mensaje = 'No se encontraron CFDIs con esos parametros.'
-                request_dl.completed_at = datetime.utcnow()
-                db.session.commit()
-                return
-
-            id_solicitud = solicitud['IdSolicitud']
-            logger.info(f"[BG] ID solicitud: {id_solicitud}, esperando procesamiento del SAT...")
-
-            st = None
-            for _ in range(25):
-                time.sleep(15)
-                st = sat.recover_comprobante_status(id_solicitud)
-                estado_solicitud = st.get('EstadoSolicitud')
-                if estado_solicitud == int(EstadoSolicitud.TERMINADA):
-                    break
-                if estado_solicitud == int(EstadoSolicitud.RECHAZADA):
-                    num_cfdis = st.get('NumeroCFDIs', 0)
-                    id_paq = st.get('IdsPaquetes') or []
-                    if num_cfdis == 0 and len(id_paq) == 0:
-                        request_dl.estado = 'completado'
-                        request_dl.total_descargados = 0
-                        request_dl.mensaje = 'No se encontraron CFDIs con esos parametros.'
-                        request_dl.completed_at = datetime.utcnow()
-                        db.session.commit()
-                        return
-                    raise Exception(f'El SAT rechazo la solicitud de descarga: {st}')
-                if estado_solicitud in (int(EstadoSolicitud.ERROR), int(EstadoSolicitud.VENCIDA)):
-                    raise Exception(f'El SAT rechazo la solicitud de descarga: {st}')
-            else:
-                raise Exception('El SAT tarda demasiado; la solicitud sigue en proceso.')
-
-            logger.info(f"[BG] SAT terminado: paquetes={st.get('IdsPaquetes') or []}")
-
-            count = 0
-            for id_paquete in (st.get('IdsPaquetes') or []):
-                _, paquete_b64 = sat.recover_comprobante_download(id_paquete)
-                if not paquete_b64:
-                    continue
-                with zipfile.ZipFile(io.BytesIO(base64.b64decode(paquete_b64))) as paquete:
-                    for nombre in paquete.namelist():
-                        if not nombre.lower().endswith('.xml'):
-                            continue
-                        xml_bytes = paquete.read(nombre)
-                        metadata = _parse_cfdi_metadata(xml_bytes, tipo)
-                        if not metadata or not metadata['uuid']:
-                            continue
-                        existing = CFDI.query.filter_by(
-                            empresa_id=empresa.id,
-                            uuid=metadata['uuid']
-                        ).first()
-                        if existing:
-                            continue
-
-                        cf = CFDI(
-                            empresa_id=empresa.id,
-                            uuid=metadata['uuid'],
-                            tipo_comprobante=metadata['tipo_comprobante'],
-                            fecha_emision=datetime.fromisoformat(metadata['fecha_emision'].replace('T', ' ')) if metadata['fecha_emision'] else None,
-                            fecha_timbrado=datetime.fromisoformat(metadata['fecha_timbrado'].replace('T', ' ')) if metadata.get('fecha_timbrado') else None,
-                            rfc_emisor=metadata['rfc_emisor'],
-                            nombre_emisor=metadata['nombre_emisor'],
-                            rfc_receptor=metadata['rfc_receptor'],
-                            nombre_receptor=metadata['nombre_receptor'],
-                            subtotal=metadata['subtotal'],
-                            total=metadata['total'],
-                            impuestos=metadata['impuestos'],
-                            iva_trasladado=metadata['iva_trasladado'],
-                            isr_retenido=metadata['isr_retenido'],
-                            iva_retenido=metadata['iva_retenido'],
-                            estado=metadata['estado'],
-                            uso_cfdi=metadata['uso_cfdi'],
-                            metodo_pago=metadata['metodo_pago'],
-                            forma_pago=metadata['forma_pago'],
-                            serie=metadata.get('serie', ''),
-                            folio=metadata.get('folio', ''),
-                            moneda=metadata['moneda'],
-                            tipo_cambio=metadata['tipo_cambio'],
-                            xml_content=xml_bytes.decode('utf-8', errors='ignore'),
-                            conceptos_json=__import__('json').dumps(metadata.get('conceptos', []), ensure_ascii=False) if metadata.get('conceptos') else None,
-                        )
-                        db.session.add(cf)
-                        count += 1
-
-            pdf_count = 0
-            if incluir_pdf and count > 0:
-                try:
-                    if tipo == 'recibidos':
-                        def solicitar_pdf(estado):
-                            return sat.recover_comprobante_received_request(
-                                fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
-                                tipo_solicitud='PDF', estado_comprobante=estado)
-                    elif tipo == 'retenciones_emitidas':
-                        def solicitar_pdf(estado):
-                            return sat.recover_retencion_emitted_request(
-                                fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
-                                tipo_solicitud='PDF', estado_comprobante=estado)
-                    elif tipo == 'retenciones_recibidas':
-                        def solicitar_pdf(estado):
-                            return sat.recover_retencion_received_request(
-                                fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
-                                tipo_solicitud='PDF', estado_comprobante=estado)
-                    else:
-                        def solicitar_pdf(estado):
-                            return sat.recover_comprobante_emitted_request(
-                                fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
-                                tipo_solicitud='PDF', estado_comprobante=estado)
-
-                    solicitud_pdf = None
-                    for estado in (EstadoComprobante.TODOS, EstadoComprobante.VIGENTE):
-                        try:
-                            solicitud_pdf = solicitar_pdf(estado)
-                            if solicitud_pdf.get('CodEstatus', '5000') == '5000':
-                                break
-                            if solicitud_pdf.get('CodEstatus') == '5004':
-                                break
-                        except Exception:
-                            continue
-
-                    if solicitud_pdf and solicitud_pdf.get('CodEstatus') != '5004':
-                        id_solicitud_pdf = solicitud_pdf['IdSolicitud']
-                        for _ in range(25):
-                            time.sleep(15)
-                            st_pdf = sat.recover_comprobante_status(id_solicitud_pdf)
-                            if st_pdf.get('EstadoSolicitud') == int(EstadoSolicitud.TERMINADA):
-                                break
-                            if st_pdf.get('EstadoSolicitud') in (int(EstadoSolicitud.ERROR), int(EstadoSolicitud.RECHAZADA), int(EstadoSolicitud.VENCIDA)):
-                                break
-                        else:
-                            st_pdf = st_pdf if 'st_pdf' in dir() else None
-
-                        if st_pdf and st_pdf.get('EstadoSolicitud') == int(EstadoSolicitud.TERMINADA):
-                            import json as _json
-                            cfdis_empresa = {cf.uuid: cf for cf in CFDI.query.filter_by(empresa_id=empresa.id).all()}
-                            upload_dir = os.path.join(app.config.get('UPLOAD_FOLDER_CFDIS', 'app/uploads/cfdis'), str(empresa.id))
-                            os.makedirs(upload_dir, exist_ok=True)
-
-                            for id_paquete_pdf in (st_pdf.get('IdsPaquetes') or []):
-                                _, paquete_pdf_b64 = sat.recover_comprobante_download(id_paquete_pdf)
-                                if not paquete_pdf_b64:
-                                    continue
-                                try:
-                                    with zipfile.ZipFile(io.BytesIO(base64.b64decode(paquete_pdf_b64))) as paquete_pdf:
-                                        for nombre_pdf in paquete_pdf.namelist():
-                                            nombre_lower = nombre_pdf.lower()
-                                            if not nombre_lower.endswith('.pdf'):
-                                                continue
-                                            pdf_bytes = paquete_pdf.read(nombre_pdf)
-                                            uuid_pdf = nombre_pdf.rsplit('.', 1)[0]
-                                            cf_pdf = cfdis_empresa.get(uuid_pdf)
-                                            if cf_pdf:
-                                                pdf_file = os.path.join(upload_dir, f'{uuid_pdf}.pdf')
-                                                with open(pdf_file, 'wb') as f:
-                                                    f.write(pdf_bytes)
-                                                cf_pdf.pdf_path = f'{uuid_pdf}.pdf'
-                                                pdf_count += 1
-                                except zipfile.BadZipFile:
-                                    continue
-                            db.session.commit()
-                except Exception:
-                    pass
+            total_count = 0
+            total_pdf = 0
+            for t in tipos:
+                logger.info(f"[BG] Descargando tipo={t}...")
+                count, pdf_count = _descargar_tipo(sat, empresa, t, fecha_inicio_d, fecha_fin_d, EstadoSolicitud, EstadoComprobante, logger, incluir_pdf=incluir_pdf, app=app)
+                total_count += count
+                total_pdf += pdf_count
 
             request_dl.estado = 'completado'
-            request_dl.total_descargados = count
+            request_dl.total_descargados = total_count
             request_dl.completed_at = datetime.utcnow()
             db.session.commit()
-            logger.info(f"[BG] Descarga completada: {count} CFDIs descargados, {pdf_count} PDFs")
+            logger.info(f"[BG] Descarga completada: {total_count} CFDIs, {total_pdf} PDFs")
 
         except ImportError as e:
             request_dl.estado = 'error'
