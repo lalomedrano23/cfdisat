@@ -3,7 +3,6 @@ import time
 import base64
 import io
 import zipfile
-import threading
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app, Response
 from flask_login import login_required, current_user
@@ -233,18 +232,13 @@ def descargar_cfdi():
         db.session.add(request_dl)
         db.session.commit()
 
-        request_id = request_dl.id
-        empresa_id_val = empresa.id
-        app = current_app._get_current_object()
+        try:
+            _ejecutar_descarga_sat(request_dl.id, empresa.id, tipo, fecha_inicio, fecha_fin, incluir_pdf)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"[DESCARGA] Error: {e}", exc_info=True)
 
-        thread = threading.Thread(
-            target=_ejecutar_descarga_sat,
-            args=(app, request_id, empresa_id_val, tipo, fecha_inicio, fecha_fin, incluir_pdf),
-            daemon=True
-        )
-        thread.start()
-
-        flash('Descarga en proceso. El SAT tarda 1-2 min. Revisa el dashboard para ver el resultado.', 'success')
+        flash('Descarga procesada. Revisa el dashboard para ver el resultado.', 'success')
         return redirect(url_for('sat.descargar_cfdi'))
 
     return render_template('sat/descargar.html', empresas=empresas)
@@ -268,13 +262,13 @@ def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolic
     if solicitud is None:
         raise Exception(f'El SAT rechazo la solicitud de descarga ({tipo}): {ultimo_error}')
 
-    logger.info(f"[BG] Solicitud {tipo} respuesta: {solicitud}")
+    logger.info(f"[DESCARGA] Solicitud {tipo} respuesta: {solicitud}")
 
     if solicitud.get('CodEstatus') == '5004':
         return 0, 0
 
     id_solicitud = solicitud['IdSolicitud']
-    logger.info(f"[BG] ID solicitud {tipo}: {id_solicitud}, esperando...")
+    logger.info(f"[DESCARGA] ID solicitud {tipo}: {id_solicitud}, esperando...")
 
     st = None
     for _ in range(25):
@@ -294,7 +288,7 @@ def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolic
     else:
         raise Exception(f'El SAT tarda demasiado ({tipo}); la solicitud sigue en proceso.')
 
-    logger.info(f"[BG] SAT terminado {tipo}: paquetes={st.get('IdsPaquetes') or []}")
+    logger.info(f"[DESCARGA] SAT terminado {tipo}: paquetes={st.get('IdsPaquetes') or []}")
 
     count = 0
     for id_paquete in (st.get('IdsPaquetes') or []):
@@ -436,67 +430,66 @@ def _get_solicitar_fn(sat, tipo, fecha_inicio_d, fecha_fin_d, tipo_solicitud):
             tipo_solicitud=tipo_solicitud, estado_comprobante=estado)
 
 
-def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fecha_fin, incluir_pdf):
+def _ejecutar_descarga_sat(request_id, empresa_id, tipo, fecha_inicio, fecha_fin, incluir_pdf):
     import logging
     logger = logging.getLogger(__name__)
 
-    with app.app_context():
-        request_dl = DownloadRequest.query.get(request_id)
-        if not request_dl:
-            logger.error(f"[BG] DownloadRequest {request_id} no encontrado")
-            return
+    request_dl = DownloadRequest.query.get(request_id)
+    if not request_dl:
+        logger.error(f"[DESCARGA] DownloadRequest {request_id} no encontrado")
+        return
 
-        empresa = Empresa.query.get(empresa_id)
-        if not empresa:
-            request_dl.estado = 'error'
-            request_dl.mensaje = 'Empresa no encontrada.'
-            db.session.commit()
-            return
+    empresa = Empresa.query.get(empresa_id)
+    if not empresa:
+        request_dl.estado = 'error'
+        request_dl.mensaje = 'Empresa no encontrada.'
+        db.session.commit()
+        return
 
-        try:
-            logger.info(f"[BG] Iniciando descarga empresa={empresa.rfc} tipo={tipo} periodo={fecha_inicio}~{fecha_fin}")
-            signer, error = _create_signer(empresa)
-            if error:
-                raise Exception(error)
+    try:
+        logger.info(f"[DESCARGA] Iniciando empresa={empresa.rfc} tipo={tipo} periodo={fecha_inicio}~{fecha_fin}")
+        signer, error = _create_signer(empresa)
+        if error:
+            raise Exception(error)
 
-            from satcfdi.pacs.sat import SAT, EstadoSolicitud, EstadoComprobante
+        from satcfdi.pacs.sat import SAT, EstadoSolicitud, EstadoComprobante
 
-            fecha_inicio_d = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
-            fecha_fin_d = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+        fecha_inicio_d = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+        fecha_fin_d = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
 
-            sat = SAT(signer=signer)
-            logger.info(f"[BG] SAT signer creado OK, solicitando descarga...")
+        sat = SAT(signer=signer)
+        logger.info(f"[DESCARGA] SAT signer creado OK")
 
-            if tipo == 'todos':
-                tipos = ['emitidos', 'recibidos']
-            else:
-                tipos = [tipo]
+        if tipo == 'todos':
+            tipos = ['emitidos', 'recibidos']
+        else:
+            tipos = [tipo]
 
-            total_count = 0
-            total_pdf = 0
-            for t in tipos:
-                logger.info(f"[BG] Descargando tipo={t}...")
-                count, pdf_count = _descargar_tipo(sat, empresa, t, fecha_inicio_d, fecha_fin_d, EstadoSolicitud, EstadoComprobante, logger, incluir_pdf=incluir_pdf, app=app)
-                total_count += count
-                total_pdf += pdf_count
+        total_count = 0
+        total_pdf = 0
+        for t in tipos:
+            logger.info(f"[DESCARGA] Descargando tipo={t}...")
+            count, pdf_count = _descargar_tipo(sat, empresa, t, fecha_inicio_d, fecha_fin_d, EstadoSolicitud, EstadoComprobante, logger, incluir_pdf=incluir_pdf, app=current_app._get_current_object())
+            total_count += count
+            total_pdf += pdf_count
 
-            request_dl.estado = 'completado'
-            request_dl.total_descargados = total_count
-            request_dl.completed_at = datetime.utcnow()
-            db.session.commit()
-            logger.info(f"[BG] Descarga completada: {total_count} CFDIs, {total_pdf} PDFs")
+        request_dl.estado = 'completado'
+        request_dl.total_descargados = total_count
+        request_dl.completed_at = datetime.utcnow()
+        db.session.commit()
+        logger.info(f"[DESCARGA] Completada: {total_count} CFDIs, {total_pdf} PDFs")
 
-        except ImportError as e:
-            request_dl.estado = 'error'
-            request_dl.mensaje = f'Error de importacion: {str(e)}'
-            db.session.commit()
-            logger.error(f"[BG] Error de importacion: {e}", exc_info=True)
+    except ImportError as e:
+        request_dl.estado = 'error'
+        request_dl.mensaje = f'Error de importacion: {str(e)}'
+        db.session.commit()
+        logger.error(f"[DESCARGA] Error de importacion: {e}", exc_info=True)
 
-        except Exception as e:
-            request_dl.estado = 'error'
-            request_dl.mensaje = str(e)
-            db.session.commit()
-            logger.error(f"[BG] Error en descarga: {e}", exc_info=True)
+    except Exception as e:
+        request_dl.estado = 'error'
+        request_dl.mensaje = str(e)
+        db.session.commit()
+        logger.error(f"[DESCARGA] Error: {e}", exc_info=True)
 
 
 @sat_bp.route('/sat/sincronizar-metadata/<int:empresa_id>', methods=['POST'])
@@ -579,16 +572,14 @@ def reprocesar_descarga(request_id):
         fecha_inicio = dl.fecha_inicio.strftime('%Y-%m-%d')
         fecha_fin = dl.fecha_fin.strftime('%Y-%m-%d')
         request_id_val = dl.id
-        app = current_app._get_current_object()
 
-        thread = threading.Thread(
-            target=_ejecutar_descarga_sat,
-            args=(app, request_id_val, empresa_id_val, tipo, fecha_inicio, fecha_fin, False),
-            daemon=True
-        )
-        thread.start()
+        try:
+            _ejecutar_descarga_sat(request_id_val, empresa_id_val, tipo, fecha_inicio, fecha_fin, False)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"[REPROCESAR] Error: {e}", exc_info=True)
 
-        flash('Reprocesando descarga...', 'success')
+        flash('Reprocesamiento completado.', 'success')
 
     return redirect(url_for('dashboard.ver_empresa', empresa_id=dl.empresa_id))
 
