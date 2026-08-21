@@ -3,6 +3,7 @@ import time
 import base64
 import io
 import zipfile
+import threading
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app, Response
 from flask_login import login_required, current_user
@@ -19,131 +20,111 @@ def _create_signer(empresa):
 
     fiel = FielCredentials.query.filter_by(empresa_id=empresa.id).first()
     if not fiel:
-        return None, 'No hay credenciales FIEL configuradas.'
+        return None, 'No se encontraron credenciales FIEL para esta empresa.'
 
-    password = decrypt_password(fiel.password_encrypted)
-
-    cer_data = fiel.cer_data
-    key_data = fiel.key_data
-    if not cer_data or not key_data:
-        # Fallback: archivos en disco (registros creados antes de guardar en BD)
-        fiel_dir = os.path.join(current_app.config['UPLOAD_FOLDER_FIEL'], empresa.rfc)
-        cer_path = os.path.join(fiel_dir, fiel.cer_filename)
-        key_path = os.path.join(fiel_dir, fiel.key_filename)
-        if not os.path.exists(cer_path) or not os.path.exists(key_path):
-            return None, 'Archivos FIEL no encontrados.'
-        with open(cer_path, 'rb') as f:
-            cer_data = f.read()
-        with open(key_path, 'rb') as f:
-            key_data = f.read()
+    if not fiel.cer_data or not fiel.key_data:
+        return None, 'FIEL incompleta: suba de nuevo los archivos .cer y .key.'
 
     try:
-        from satcfdi.models.signer import Signer
-        signer = Signer.load(
-            certificate=cer_data,
-            key=key_data,
-            password=password.encode() if password else None,
-        )
+        cer_pem = fiel.cer_data if isinstance(fiel.cer_data, bytes) else fiel.cer_data.encode('latin-1')
+        key_pem = fiel.key_data if isinstance(fiel.key_data, bytes) else fiel.key_data.encode('latin-1')
+
+        cert = load_certificate(FILETYPE_PEM, cer_pem)
+        private_key = load_pem_private_key(key_pem, password=None)
+
+        password = decrypt_password(fiel.password_encrypted)
+        from satcfdi import Certificate, Key
+        signer = (Certificate(cer_pem), Key(key_pem, password))
         return signer, None
     except Exception as e:
         return None, f'Error al cargar FIEL: {str(e)}'
 
 
-def _parse_cfdi_metadata(xml_bytes, tipo_solicitud):
-    from lxml import etree
+def _parse_cfdi_metadata(xml_bytes, tipo_solicitud='emitidos'):
     import xml.etree.ElementTree as ET
+    import json
 
     try:
         root = ET.fromstring(xml_bytes)
-        ns = {'cfdi': 'http://www.sat.gob.mx/cfd/4', 'cfdi33': 'http://www.sat.gob.mx/cfd/3'}
+    except Exception:
+        return None
 
-        comprobante = root
-        if comprobante.tag == '{http://www.sat.gob.mx/cfd/4}Comprobante':
-            nsmap = ns['cfdi']
-        elif comprobante.tag == '{http://www.sat.gob.mx/cfd/3}Comprobante':
-            nsmap = ns['cfdi33']
-        else:
-            nsmap = None
+    nsmap = None
+    if root.tag.startswith('{'):
+        nsmap = root.tag.split('}')[0].strip('{')
 
-        if nsmap is None:
-            nsmap = root.tag.split('}')[0].strip('{') if '}' in root.tag else ''
+    def find(elem, tag):
+        return elem.find(f'{{{nsmap}}}{tag}') if nsmap else elem.find(tag)
 
-        emisor = root.find(f'{{{nsmap}}}Emisor') if nsmap else root.find('Emisor')
-        receptor = root.find(f'{{{nsmap}}}Receptor') if nsmap else root.find('Receptor')
-        impuestos = root.find(f'{{{nsmap}}}Impuestos') if nsmap else root.find('Impuestos')
-        timbrado = None
-        complemento = root.find(f'{{{nsmap}}}Complemento') if nsmap else root.find('Complemento')
-        if complemento is not None:
-            timbrado = complemento.find('{http://www.sat.gob.mx/TimbreFiscalDigital}TimbreFiscalDigital')
+    def findall(elem, tag):
+        return elem.findall(f'{{{nsmap}}}{tag}') if nsmap else elem.findall(tag)
 
-        uuid = ''
-        fecha_timbrado = None
-        if timbrado is not None:
-            uuid = timbrado.get('UUID', '')
-            fecha_timbrado = timbrado.get('FechaTimbrado', '')
+    def attr(node, name, default=''):
+        return node.get(name, default) if node is not None else default
 
-        rfc_emisor = emisor.get('Rfc', '') if emisor is not None else ''
-        nombre_emisor = emisor.get('Nombre', '') if emisor is not None else ''
-        rfc_receptor = receptor.get('Rfc', '') if receptor is not None else ''
-        nombre_receptor = receptor.get('Nombre', '') if receptor is not None else ''
+    rfc_emisor = attr(find(root, 'Emisor'), 'Rfc')
+    nombre_emisor = attr(find(root, 'Emisor'), 'Nombre')
+    rfc_receptor = attr(find(root, 'Receptor'), 'Rfc')
+    nombre_receptor = attr(find(root, 'Receptor'), 'Nombre')
 
-        subtotal = float(root.get('SubTotal', 0))
-        total = float(root.get('Total', 0))
-        fecha = root.get('Fecha', '')
-        tipo_comp = root.get('TipoDeComprobante', '')
-        serie = root.get('Serie', '')
-        folio = root.get('Folio', '')
-        uso_cfdi = receptor.get('UsoCFDI', '') if receptor is not None else ''
-        metodo_pago = root.get('MetodoPago', '')
-        forma_pago = root.get('FormaPago', '')
-        moneda = root.get('Moneda', 'MXN')
-        tipo_cambio = float(root.get('TipoCambio', 1))
+    uuid = ''
+    fecha_timbrado = ''
+    complemento = find(root, 'Complemento')
+    if complemento is not None:
+        for child in complemento:
+            tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            if tag == 'TimbreFiscalDigital':
+                uuid = child.get('UUID', '')
+                fecha_timbrado = child.get('FechaTimbrado', '')
+                break
 
-        total_impuestos = 0
-        iva_trasladado = 0
-        isr_retenido = 0
-        iva_retenido = 0
-        if impuestos is not None:
-            total_impuestos = float(impuestos.get('TotalImpuestosTrasladados', 0)) + \
-                            float(impuestos.get('TotalImpuestosRetenidos', 0))
+    tipo_comp = root.get('TipoDeComprobante', 'I')
 
-            traslados = impuestos.find(f'{{{nsmap}}}Traslados') if nsmap else impuestos.find('Traslados')
-            if traslados is not None:
-                for t in (traslados.findall(f'{{{nsmap}}}Traslado') if nsmap else traslados.findall('Traslado')):
-                    imp_code = t.get('Impuesto', '')
-                    importe = float(t.get('Importe', 0))
-                    if imp_code == '002':
-                        iva_trasladado += importe
+    impuestos_total = float(root.get('TotalImpuestosTrasladados', 0) or 0)
+    impuestos_elem = find(root, 'Impuestos')
 
-            retenciones = impuestos.find(f'{{{nsmap}}}Retenciones') if nsmap else impuestos.find('Retenciones')
-            if retenciones is not None:
-                for r in (retenciones.findall(f'{{{nsmap}}}Retencion') if nsmap else retenciones.findall('Retencion')):
-                    imp_code = r.get('Impuesto', '')
-                    importe = float(r.get('Importe', 0))
-                    if imp_code == '001':
-                        isr_retenido += importe
-                    elif imp_code == '002':
-                        iva_retenido += importe
+    iva_trasladado = 0
+    isr_retenido = 0
+    iva_retenido = 0
 
-        conceptos = []
-        conceptos_elem = root.find(f'{{{nsmap}}}Conceptos') if nsmap else root.find('Conceptos')
-        if conceptos_elem is not None:
-            for concepto in (conceptos_elem.findall(f'{{{nsmap}}}Concepto') if nsmap else conceptos_elem.findall('Concepto')):
-                conceptos.append({
-                    'claveProdServ': concepto.get('ClaveProdServ', ''),
-                    'cantidad': float(concepto.get('Cantidad', 0)),
-                    'claveUnidad': concepto.get('ClaveUnidad', ''),
-                    'descripcion': concepto.get('Descripcion', ''),
-                    'valorUnitario': float(concepto.get('ValorUnitario', 0)),
-                    'importe': float(concepto.get('Importe', 0)),
-                })
+    if impuestos_elem is not None:
+        traslados = find(impuestos_elem, 'Traslados')
+        if traslados is not None:
+            for t in findall(traslados, 'Traslado'):
+                if t.get('Impuesto') == '002':
+                    iva_trasladado += float(t.get('Importe', 0))
 
-        estado = 'vigente'
+        retenciones = find(impuestos_elem, 'Retenciones')
+        if retenciones is not None:
+            for r in findall(retenciones, 'Retencion'):
+                imp_code = r.get('Impuesto', '')
+                importe = float(r.get('Importe', 0))
+                if imp_code == '001':
+                    isr_retenido += importe
+                elif imp_code == '002':
+                    iva_retenido += importe
 
+    conceptos = []
+    conceptos_elem = find(root, 'Conceptos')
+    if conceptos_elem is not None:
+        for c in findall(conceptos_elem, 'Concepto'):
+            conceptos.append({
+                'claveProdServ': c.get('ClaveProdServ', ''),
+                'cantidad': float(c.get('Cantidad', 0)),
+                'claveUnidad': c.get('ClaveUnidad', ''),
+                'descripcion': c.get('Descripcion', ''),
+                'valorUnitario': float(c.get('ValorUnitario', 0)),
+                'importe': float(c.get('Importe', 0)),
+            })
+
+    subtotal = float(root.get('SubTotal', 0) or 0)
+    total = float(root.get('Total', 0) or 0)
+
+    try:
         return {
             'uuid': uuid,
             'tipo_comprobante': tipo_comp,
-            'fecha_emision': fecha,
+            'fecha_emision': root.get('Fecha', ''),
             'fecha_timbrado': fecha_timbrado,
             'rfc_emisor': rfc_emisor,
             'nombre_emisor': nombre_emisor,
@@ -151,18 +132,18 @@ def _parse_cfdi_metadata(xml_bytes, tipo_solicitud):
             'nombre_receptor': nombre_receptor,
             'subtotal': subtotal,
             'total': total,
-            'impuestos': total_impuestos,
+            'impuestos': impuestos_total,
             'iva_trasladado': iva_trasladado,
             'isr_retenido': isr_retenido,
             'iva_retenido': iva_retenido,
-            'estado': estado,
-            'uso_cfdi': uso_cfdi,
-            'metodo_pago': metodo_pago,
-            'forma_pago': forma_pago,
-            'serie': serie,
-            'folio': folio,
-            'moneda': moneda,
-            'tipo_cambio': tipo_cambio,
+            'estado': 'vigente',
+            'uso_cfdi': attr(find(root, 'Receptor'), 'UsoCFDI'),
+            'metodo_pago': root.get('MetodoPago', ''),
+            'forma_pago': root.get('FormaPago', ''),
+            'serie': root.get('Serie', ''),
+            'folio': root.get('Folio', ''),
+            'moneda': root.get('Moneda', 'MXN'),
+            'tipo_cambio': root.get('TipoCambio', '1'),
             'conceptos': conceptos,
         }
     except Exception:
@@ -240,6 +221,36 @@ def descargar_cfdi():
         db.session.add(request_dl)
         db.session.commit()
 
+        request_id = request_dl.id
+        empresa_id_val = empresa.id
+        app = current_app._get_current_object()
+
+        thread = threading.Thread(
+            target=_ejecutar_descarga_sat,
+            args=(app, request_id, empresa_id_val, tipo, fecha_inicio, fecha_fin, incluir_pdf),
+            daemon=True
+        )
+        thread.start()
+
+        flash('Descarga en proceso. El SAT tarda 1-2 min. Revisa el dashboard para ver el resultado.', 'success')
+        return redirect(url_for('sat.descargar_cfdi'))
+
+    return render_template('sat/descargar.html', empresas=empresas)
+
+
+def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fecha_fin, incluir_pdf):
+    with app.app_context():
+        request_dl = DownloadRequest.query.get(request_id)
+        if not request_dl:
+            return
+
+        empresa = Empresa.query.get(empresa_id)
+        if not empresa:
+            request_dl.estado = 'error'
+            request_dl.mensaje = 'Empresa no encontrada.'
+            db.session.commit()
+            return
+
         try:
             signer, error = _create_signer(empresa)
             if error:
@@ -247,11 +258,8 @@ def descargar_cfdi():
 
             from satcfdi.pacs.sat import SAT, EstadoSolicitud, EstadoComprobante
 
-            try:
-                fecha_inicio_d = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
-                fecha_fin_d = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
-            except ValueError:
-                raise Exception('Formato de fechas invalido (use YYYY-MM-DD).')
+            fecha_inicio_d = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+            fecha_fin_d = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
 
             sat = SAT(signer=signer)
 
@@ -276,8 +284,6 @@ def descargar_cfdi():
                         fecha_inicial=fecha_inicio_d, fecha_final=fecha_fin_d,
                         tipo_solicitud='CFDI', estado_comprobante=estado)
 
-            # El SAT solo acepta 'Vigente' para descarga de CFDI; intentamos
-            # 'Todos' y si lo rechaza reintentamos con 'Vigente'.
             solicitud = None
             ultimo_error = None
             for estado in (EstadoComprobante.TODOS, EstadoComprobante.VIGENTE):
@@ -286,7 +292,7 @@ def descargar_cfdi():
                     if solicitud.get('CodEstatus', '5000') == '5000':
                         break
                     if solicitud.get('CodEstatus') == '5004':
-                        break  # sin resultados para la consulta
+                        break
                     ultimo_error = solicitud
                 except Exception as e:
                     ultimo_error = e
@@ -299,12 +305,10 @@ def descargar_cfdi():
                 request_dl.mensaje = 'No se encontraron CFDIs con esos parametros.'
                 request_dl.completed_at = datetime.utcnow()
                 db.session.commit()
-                flash('Descarga completada: 0 CFDIs (el SAT no encontro coincidencias).', 'success')
-                return redirect(url_for('sat.descargar_cfdi'))
+                return
 
             id_solicitud = solicitud['IdSolicitud']
 
-            # Esperar a que el SAT genere los paquetes (suele tardar 1-2 minutos)
             st = None
             for _ in range(25):
                 time.sleep(15)
@@ -321,8 +325,7 @@ def descargar_cfdi():
                         request_dl.mensaje = 'No se encontraron CFDIs con esos parametros.'
                         request_dl.completed_at = datetime.utcnow()
                         db.session.commit()
-                        flash('Descarga completada: 0 CFDIs (el SAT no encontro coincidencias).', 'success')
-                        return redirect(url_for('sat.descargar_cfdi'))
+                        return
                     raise Exception(f'El SAT rechazo la solicitud de descarga: {st}')
                 if estado_solicitud in (int(EstadoSolicitud.ERROR), int(EstadoSolicitud.VENCIDA)):
                     raise Exception(f'El SAT rechazo la solicitud de descarga: {st}')
@@ -429,7 +432,7 @@ def descargar_cfdi():
                         if st_pdf and st_pdf.get('EstadoSolicitud') == int(EstadoSolicitud.TERMINADA):
                             import json as _json
                             cfdis_empresa = {cf.uuid: cf for cf in CFDI.query.filter_by(empresa_id=empresa.id).all()}
-                            upload_dir = os.path.join(current_app.config.get('UPLOAD_FOLDER_CFDIS', 'app/uploads/cfdis'), str(empresa.id))
+                            upload_dir = os.path.join(app.config.get('UPLOAD_FOLDER_CFDIS', 'app/uploads/cfdis'), str(empresa.id))
                             os.makedirs(upload_dir, exist_ok=True)
 
                             for id_paquete_pdf in (st_pdf.get('IdsPaquetes') or []):
@@ -462,26 +465,15 @@ def descargar_cfdi():
             request_dl.completed_at = datetime.utcnow()
             db.session.commit()
 
-            msg = f'Descarga completada: {count} CFDIs sincronizados.'
-            if pdf_count:
-                msg += f' {pdf_count} PDFs generados.'
-            flash(msg, 'success')
-
         except ImportError as e:
             request_dl.estado = 'error'
             request_dl.mensaje = f'Error de importacion: {str(e)}'
             db.session.commit()
-            flash('Error: Verifique que satcfdi este instalado: pip install satcfdi', 'error')
 
         except Exception as e:
             request_dl.estado = 'error'
             request_dl.mensaje = str(e)
             db.session.commit()
-            flash(f'Error en la descarga: {str(e)}', 'error')
-
-        return redirect(url_for('sat.descargar_cfdi'))
-
-    return render_template('sat/descargar.html', empresas=empresas)
 
 
 @sat_bp.route('/sat/sincronizar-metadata/<int:empresa_id>', methods=['POST'])
@@ -500,97 +492,28 @@ def sincronizar_metadata(empresa_id):
         from satcfdi.pacs.sat import SAT
         sat = SAT(signer=signer)
 
-        cfdis = CFDI.query.filter_by(empresa_id=empresa.id).all()
-        actualizados = 0
-
+        cfdis = CFDI.query.filter_by(empresa_id=empresa_id).all()
+        updated = 0
         for cf in cfdis:
+            if not cf.uuid:
+                continue
             try:
-                consulta = {
-                    'Emisor': {'Rfc': cf.rfc_emisor},
-                    'Receptor': {'Rfc': cf.rfc_receptor},
-                    'Total': cf.total,
-                    'Complemento': {'TimbreFiscalDigital': {'UUID': cf.uuid}},
-                }
-                res = sat.status(consulta)
-                estado_sat = res.get('Estado', '')
-                if 'Cancelado' in estado_sat and cf.estado != 'cancelado':
-                    cf.estado = 'cancelado'
-                    actualizados += 1
-                elif 'Vigente' in estado_sat and cf.estado != 'vigente':
-                    cf.estado = 'vigente'
-                    actualizados += 1
+                cfdi_dict = {'UUID': cf.uuid}
+                status = sat.status(cfdi_dict)
+                if status:
+                    if 'Cancelado' in str(status):
+                        cf.estado = 'cancelado'
+                    updated += 1
             except Exception:
                 continue
 
         db.session.commit()
-        flash(f'Metadata sincronizada: {actualizados} CFDIs actualizados.', 'success')
+        flash(f'Metadata sincronizada: {updated} CFDIs actualizados.', 'success')
 
-    except ImportError:
-        flash('Libreria satcfdi no instalada.', 'error')
     except Exception as e:
         flash(f'Error al sincronizar: {str(e)}', 'error')
 
     return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id))
-
-
-@sat_bp.route('/api/cfdis/<int:empresa_id>')
-@login_required
-def api_cfdis(empresa_id):
-    empresa = Empresa.query.get_or_404(empresa_id)
-    if empresa.user_id != current_user.id:
-        return jsonify({'error': 'No access'}), 403
-
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
-    tipo = request.args.get('tipo', '')
-    estado = request.args.get('estado', '')
-    search = request.args.get('search', '')
-
-    query = CFDI.query.filter_by(empresa_id=empresa.id)
-
-    if tipo:
-        query = query.filter_by(tipo_comprobante=tipo)
-    if estado:
-        query = query.filter_by(estado=estado)
-    if search:
-        search_filter = f'%{search}%'
-        query = query.filter(
-            db.or_(
-                CFDI.uuid.ilike(search_filter),
-                CFDI.rfc_emisor.ilike(search_filter),
-                CFDI.rfc_receptor.ilike(search_filter),
-                CFDI.nombre_emisor.ilike(search_filter),
-                CFDI.nombre_receptor.ilike(search_filter),
-            )
-        )
-
-    pagination = query.order_by(CFDI.fecha_emision.desc()).paginate(
-        page=page, per_page=per_page, error_out=False
-    )
-
-    cfdis = [{
-        'id': c.id,
-        'uuid': c.uuid,
-        'tipo': c.tipo_comprobante,
-        'fecha_emision': c.fecha_emision.isoformat() if c.fecha_emision else None,
-        'rfc_emisor': c.rfc_emisor,
-        'nombre_emisor': c.nombre_emisor,
-        'rfc_receptor': c.rfc_receptor,
-        'nombre_receptor': c.nombre_receptor,
-        'subtotal': c.subtotal,
-        'total': c.total,
-        'impuestos': c.impuestos,
-        'estado': c.estado,
-        'uso_cfdi': c.uso_cfdi,
-        'moneda': c.moneda,
-    } for c in pagination.items]
-
-    return jsonify({
-        'cfdis': cfdis,
-        'total': pagination.total,
-        'pages': pagination.pages,
-        'current_page': page
-    })
 
 
 @sat_bp.route('/sat/cancelar-descarga/<int:request_id>', methods=['POST'])
@@ -604,11 +527,10 @@ def cancelar_descarga(request_id):
 
     if dl.estado == 'procesando':
         dl.estado = 'cancelado'
-        dl.mensaje = 'Cancelada por el usuario'
+        dl.mensaje = 'Cancelado por el usuario.'
+        dl.completed_at = datetime.utcnow()
         db.session.commit()
         flash('Descarga cancelada.', 'success')
-    else:
-        flash('Solo se pueden cancelar descargas en proceso.', 'error')
 
     return redirect(url_for('dashboard.ver_empresa', empresa_id=dl.empresa_id))
 
@@ -622,17 +544,30 @@ def reprocesar_descarga(request_id):
         flash('No tienes acceso.', 'error')
         return redirect(url_for('dashboard.index'))
 
-    if dl.estado not in ('procesando', 'error', 'cancelado'):
-        flash('No se puede reprocesar esta descarga.', 'error')
-        return redirect(url_for('dashboard.ver_empresa', empresa_id=dl.empresa_id))
+    if dl.estado in ('error', 'cancelado'):
+        dl.estado = 'procesando'
+        dl.mensaje = None
+        dl.total_descargados = 0
+        dl.completed_at = None
+        db.session.commit()
 
-    dl.estado = 'procesando'
-    dl.mensaje = None
-    dl.total_descargados = 0
-    dl.completed_at = None
-    db.session.commit()
+        empresa_id_val = dl.empresa_id
+        tipo = dl.tipo
+        fecha_inicio = dl.fecha_inicio.strftime('%Y-%m-%d')
+        fecha_fin = dl.fecha_fin.strftime('%Y-%m-%d')
+        request_id_val = dl.id
+        app = current_app._get_current_object()
 
-    return redirect(url_for('sat.descargar_cfdi'))
+        thread = threading.Thread(
+            target=_ejecutar_descarga_sat,
+            args=(app, request_id_val, empresa_id_val, tipo, fecha_inicio, fecha_fin, False),
+            daemon=True
+        )
+        thread.start()
+
+        flash('Reprocesando descarga...', 'success')
+
+    return redirect(url_for('dashboard.ver_empresa', empresa_id=dl.empresa_id))
 
 
 @sat_bp.route('/sat/descargar-xml/<int:cfdi_id>')
