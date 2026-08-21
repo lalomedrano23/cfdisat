@@ -239,9 +239,13 @@ def descargar_cfdi():
 
 
 def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fecha_fin, incluir_pdf):
+    import logging
+    logger = logging.getLogger(__name__)
+
     with app.app_context():
         request_dl = DownloadRequest.query.get(request_id)
         if not request_dl:
+            logger.error(f"[BG] DownloadRequest {request_id} no encontrado")
             return
 
         empresa = Empresa.query.get(empresa_id)
@@ -252,6 +256,7 @@ def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fech
             return
 
         try:
+            logger.info(f"[BG] Iniciando descarga empresa={empresa.rfc} tipo={tipo} periodo={fecha_inicio}~{fecha_fin}")
             signer, error = _create_signer(empresa)
             if error:
                 raise Exception(error)
@@ -262,6 +267,7 @@ def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fech
             fecha_fin_d = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
 
             sat = SAT(signer=signer)
+            logger.info(f"[BG] SAT signer creado OK, solicitando descarga...")
 
             if tipo == 'recibidos':
                 def solicitar(estado):
@@ -299,6 +305,8 @@ def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fech
             if solicitud is None:
                 raise Exception(f'El SAT rechazo la solicitud de descarga: {ultimo_error}')
 
+            logger.info(f"[BG] Solicitud SAT respuesta: {solicitud}")
+
             if solicitud.get('CodEstatus') == '5004':
                 request_dl.estado = 'completado'
                 request_dl.total_descargados = 0
@@ -308,6 +316,7 @@ def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fech
                 return
 
             id_solicitud = solicitud['IdSolicitud']
+            logger.info(f"[BG] ID solicitud: {id_solicitud}, esperando procesamiento del SAT...")
 
             st = None
             for _ in range(25):
@@ -331,6 +340,8 @@ def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fech
                     raise Exception(f'El SAT rechazo la solicitud de descarga: {st}')
             else:
                 raise Exception('El SAT tarda demasiado; la solicitud sigue en proceso.')
+
+            logger.info(f"[BG] SAT terminado: paquetes={st.get('IdsPaquetes') or []}")
 
             count = 0
             for id_paquete in (st.get('IdsPaquetes') or []):
@@ -464,16 +475,19 @@ def _ejecutar_descarga_sat(app, request_id, empresa_id, tipo, fecha_inicio, fech
             request_dl.total_descargados = count
             request_dl.completed_at = datetime.utcnow()
             db.session.commit()
+            logger.info(f"[BG] Descarga completada: {count} CFDIs descargados, {pdf_count} PDFs")
 
         except ImportError as e:
             request_dl.estado = 'error'
             request_dl.mensaje = f'Error de importacion: {str(e)}'
             db.session.commit()
+            logger.error(f"[BG] Error de importacion: {e}", exc_info=True)
 
         except Exception as e:
             request_dl.estado = 'error'
             request_dl.mensaje = str(e)
             db.session.commit()
+            logger.error(f"[BG] Error en descarga: {e}", exc_info=True)
 
 
 @sat_bp.route('/sat/sincronizar-metadata/<int:empresa_id>', methods=['POST'])

@@ -89,6 +89,9 @@
                         <span class="badge badge-{{ 'success' if req.estado == 'completado' else 'error' if req.estado == 'error' else 'warning' }}">
                             {{ req.estado }}
                         </span>
+                        {% if req.mensaje %}
+                        <br><small style="color:#dc3545">{{ req.mensaje }}</small>
+                        {% endif %}
                     </td>
                     <td>{{ req.total_descargados }}</td>
                     <td>
