@@ -271,8 +271,8 @@ def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolic
     logger.info(f"[DESCARGA] ID solicitud {tipo}: {id_solicitud}, esperando...")
 
     st = None
-    for _ in range(25):
-        time.sleep(15)
+    for _ in range(30):
+        time.sleep(10)
         st = sat.recover_comprobante_status(id_solicitud)
         estado_solicitud = st.get('EstadoSolicitud')
         if estado_solicitud == int(EstadoSolicitud.TERMINADA):
@@ -381,8 +381,8 @@ def _descargar_pdf_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoS
 
         id_solicitud_pdf = solicitud_pdf['IdSolicitud']
         st_pdf = None
-        for _ in range(25):
-            time.sleep(15)
+        for _ in range(30):
+            time.sleep(10)
             st_pdf = sat.recover_comprobante_status(id_solicitud_pdf)
             if st_pdf.get('EstadoSolicitud') == int(EstadoSolicitud.TERMINADA):
                 break
