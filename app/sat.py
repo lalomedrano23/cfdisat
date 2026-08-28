@@ -51,6 +51,13 @@ def _create_signer(empresa):
         return None, f'Error al cargar FIEL: {str(e)}'
 
 
+def _trunc(value, max_len):
+    if value is None:
+        return None
+    value = str(value)
+    return value[:max_len] if len(value) > max_len else value
+
+
 def _parse_cfdi_metadata(xml_bytes, tipo_solicitud='emitidos'):
     import xml.etree.ElementTree as ET
     import json
@@ -147,13 +154,13 @@ def _parse_cfdi_metadata(xml_bytes, tipo_solicitud='emitidos'):
             'iva_trasladado': iva_trasladado,
             'isr_retenido': isr_retenido,
             'iva_retenido': iva_retenido,
-            'estado': 'vigente',
-            'uso_cfdi': attr(find(root, 'Receptor'), 'UsoCFDI'),
-            'metodo_pago': root.get('MetodoPago', ''),
-            'forma_pago': root.get('FormaPago', ''),
-            'serie': root.get('Serie', ''),
-            'folio': root.get('Folio', ''),
-            'moneda': root.get('Moneda', 'MXN'),
+        'estado': 'vigente',
+            'uso_cfdi': _trunc(attr(find(root, 'Receptor'), 'UsoCFDI'), 10),
+            'metodo_pago': _trunc(root.get('MetodoPago', ''), 5),
+            'forma_pago': _trunc(root.get('FormaPago', ''), 5),
+            'serie': _trunc(root.get('Serie', ''), 50),
+            'folio': _trunc(root.get('Folio', ''), 50),
+            'moneda': _trunc(root.get('Moneda', 'MXN'), 5),
             'tipo_cambio': root.get('TipoCambio', '1'),
             'conceptos': conceptos,
         }
@@ -314,40 +321,46 @@ def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolic
                     continue
 
                 logger.info(f"[DESCARGA] {tipo}: guardando {metadata['uuid']} emisor={metadata['rfc_emisor']} receptor={metadata['rfc_receptor']}")
-                cf = CFDI(
-                    empresa_id=empresa.id,
-                    uuid=metadata['uuid'],
-                    tipo_comprobante=metadata['tipo_comprobante'],
-                    fecha_emision=datetime.fromisoformat(metadata['fecha_emision'].replace('T', ' ')) if metadata['fecha_emision'] else None,
-                    fecha_timbrado=datetime.fromisoformat(metadata['fecha_timbrado'].replace('T', ' ')) if metadata.get('fecha_timbrado') else None,
-                    rfc_emisor=metadata['rfc_emisor'],
-                    nombre_emisor=metadata['nombre_emisor'],
-                    rfc_receptor=metadata['rfc_receptor'],
-                    nombre_receptor=metadata['nombre_receptor'],
-                    subtotal=metadata['subtotal'],
-                    total=metadata['total'],
-                    impuestos=metadata['impuestos'],
-                    iva_trasladado=metadata['iva_trasladado'],
-                    isr_retenido=metadata['isr_retenido'],
-                    iva_retenido=metadata['iva_retenido'],
-                    estado=metadata['estado'],
-                    uso_cfdi=metadata['uso_cfdi'],
-                    metodo_pago=metadata['metodo_pago'],
-                    forma_pago=metadata['forma_pago'],
-                    serie=metadata.get('serie', ''),
-                    folio=metadata.get('folio', ''),
-                    moneda=metadata['moneda'],
-                    tipo_cambio=metadata['tipo_cambio'],
-                    xml_content=xml_bytes.decode('utf-8', errors='ignore'),
-                    conceptos_json=__import__('json').dumps(metadata.get('conceptos', []), ensure_ascii=False) if metadata.get('conceptos') else None,
-                )
-                db.session.add(cf)
-                count += 1
-                since_commit += 1
-                if since_commit >= 50:
-                    db.session.commit()
+                try:
+                    cf = CFDI(
+                        empresa_id=empresa.id,
+                        uuid=metadata['uuid'],
+                        tipo_comprobante=_trunc(metadata['tipo_comprobante'], 1),
+                        fecha_emision=datetime.fromisoformat(metadata['fecha_emision'].replace('T', ' ')) if metadata['fecha_emision'] else None,
+                        fecha_timbrado=datetime.fromisoformat(metadata['fecha_timbrado'].replace('T', ' ')) if metadata.get('fecha_timbrado') else None,
+                        rfc_emisor=_trunc(metadata['rfc_emisor'], 13),
+                        nombre_emisor=_trunc(metadata['nombre_emisor'], 300),
+                        rfc_receptor=_trunc(metadata['rfc_receptor'], 13),
+                        nombre_receptor=_trunc(metadata['nombre_receptor'], 300),
+                        subtotal=metadata['subtotal'],
+                        total=metadata['total'],
+                        impuestos=metadata['impuestos'],
+                        iva_trasladado=metadata['iva_trasladado'],
+                        isr_retenido=metadata['isr_retenido'],
+                        iva_retenido=metadata['iva_retenido'],
+                        estado=_trunc(metadata['estado'], 20),
+                        uso_cfdi=_trunc(metadata['uso_cfdi'], 10),
+                        metodo_pago=_trunc(metadata['metodo_pago'], 5),
+                        forma_pago=_trunc(metadata['forma_pago'], 5),
+                        serie=_trunc(metadata.get('serie', ''), 50),
+                        folio=_trunc(metadata.get('folio', ''), 50),
+                        moneda=_trunc(metadata['moneda'], 5),
+                        tipo_cambio=metadata['tipo_cambio'],
+                        xml_content=xml_bytes.decode('utf-8', errors='ignore'),
+                        conceptos_json=__import__('json').dumps(metadata.get('conceptos', []), ensure_ascii=False) if metadata.get('conceptos') else None,
+                    )
+                    db.session.add(cf)
+                    db.session.flush()
+                    count += 1
+                    since_commit += 1
+                    if since_commit >= 50:
+                        db.session.commit()
+                        since_commit = 0
+                        logger.info(f"[DESCARGA] {tipo}: commit parcial ({count} guardados hasta ahora)")
+                except Exception as e:
+                    db.session.rollback()
                     since_commit = 0
-                    logger.info(f"[DESCARGA] {tipo}: commit parcial ({count} guardados hasta ahora)")
+                    logger.error(f"[DESCARGA] {tipo}: error al guardar CFDI {metadata.get('uuid')}: {e}")
 
     if since_commit > 0:
         db.session.commit()

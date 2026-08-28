@@ -50,6 +50,19 @@ def _ensure_fiel_columns():
                 conn.execute(text('ALTER TABLE cfdis ADD COLUMN pdf_path VARCHAR(500)'))
         _backfill_conceptos_from_xml()
 
+    try:
+        serie_len = inspector.get_columns('cfdis')
+        serie_col = next((c for c in serie_len if c['name'] == 'serie'), None)
+        folio_col = next((c for c in serie_len if c['name'] == 'folio'), None)
+        if serie_col is not None and serie_col.get('type') and getattr(serie_col['type'], 'length', 0) is not None and int(serie_col['type'].length) < 50:
+            with db.engine.begin() as conn:
+                conn.execute(text('ALTER TABLE cfdis ALTER COLUMN serie TYPE VARCHAR(50)'))
+        if folio_col is not None and folio_col.get('type') and getattr(folio_col['type'], 'length', 0) is not None and int(folio_col['type'].length) < 50:
+            with db.engine.begin() as conn:
+                conn.execute(text('ALTER TABLE cfdis ALTER COLUMN folio TYPE VARCHAR(50)'))
+    except Exception:
+        pass
+
 
 def _backfill_tax_from_xml(missing_cols):
     import xml.etree.ElementTree as ET
