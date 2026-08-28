@@ -302,14 +302,17 @@ def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolic
                 xml_bytes = paquete.read(nombre)
                 metadata = _parse_cfdi_metadata(xml_bytes, tipo)
                 if not metadata or not metadata['uuid']:
+                    logger.info(f"[DESCARGA] {tipo}: XML sin metadata/unid valido: {nombre}")
                     continue
                 existing = CFDI.query.filter_by(
                     empresa_id=empresa.id,
                     uuid=metadata['uuid']
                 ).first()
                 if existing:
+                    logger.info(f"[DESCARGA] {tipo}: UUID duplicado omitido: {metadata['uuid']} emisor={metadata['rfc_emisor']} receptor={metadata['rfc_receptor']}")
                     continue
 
+                logger.info(f"[DESCARGA] {tipo}: guardando {metadata['uuid']} emisor={metadata['rfc_emisor']} receptor={metadata['rfc_receptor']}")
                 cf = CFDI(
                     empresa_id=empresa.id,
                     uuid=metadata['uuid'],
@@ -339,6 +342,8 @@ def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolic
                 )
                 db.session.add(cf)
                 count += 1
+
+    logger.info(f"[DESCARGA] {tipo}: total guardados en este tipo = {count}")
 
     pdf_count = 0
     if incluir_pdf and count > 0 and app:
