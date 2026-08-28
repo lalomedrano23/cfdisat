@@ -291,6 +291,7 @@ def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolic
     logger.info(f"[DESCARGA] SAT terminado {tipo}: paquetes={st.get('IdsPaquetes') or []}")
 
     count = 0
+    since_commit = 0
     for id_paquete in (st.get('IdsPaquetes') or []):
         _, paquete_b64 = sat.recover_comprobante_download(id_paquete)
         if not paquete_b64:
@@ -342,6 +343,14 @@ def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolic
                 )
                 db.session.add(cf)
                 count += 1
+                since_commit += 1
+                if since_commit >= 50:
+                    db.session.commit()
+                    since_commit = 0
+                    logger.info(f"[DESCARGA] {tipo}: commit parcial ({count} guardados hasta ahora)")
+
+    if since_commit > 0:
+        db.session.commit()
 
     logger.info(f"[DESCARGA] {tipo}: total guardados en este tipo = {count}")
 
