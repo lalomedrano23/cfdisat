@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}CFDIs {{ nombre_mes }} {{ anio }} - CFDISAT{% endblock %}
+{% block content %}
+<div class="dashboard-header">
+    <h1>{{ nombre_mes }} {{ anio }} — {{ empresa.rfc }}</h1>
+    <a href="{{ url_for('cfdis.indice', empresa_id=empresa.id) }}" class="btn btn-sm btn-secondary">← Volver a meses</a>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card stat-blue"><div class="stat-number">{{ conteos['todos'] }}</div><div class="stat-label">Total</div></div>
+    <div class="stat-card stat-green"><div class="stat-number">{{ conteos['emitidos'] }}</div><div class="stat-label">Emitidos</div></div>
+    <div class="stat-card stat-purple"><div class="stat-number">{{ conteos['recibidos'] }}</div><div class="stat-label">Recibidos</div></div>
+    <div class="stat-card stat-cash"><div class="stat-number">${{ "{:,.2f}".format(total_monto) }}</div><div class="stat-label">Monto</div></div>
+</div>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0">
+    <a class="btn btn-{{ 'primary' if tipo=='todos' else 'secondary' }} btn-sm"
+       href="{{ url_for('cfdis.mes_detalle', empresa_id=empresa.id, anio=anio, mes=mes, tipo='todos') }}">Todos</a>
+    <a class="btn btn-{{ 'primary' if tipo=='emitidos' else 'secondary' }} btn-sm"
+       href="{{ url_for('cfdis.mes_detalle', empresa_id=empresa.id, anio=anio, mes=mes, tipo='emitidos') }}">Emitidos</a>
+    <a class="btn btn-{{ 'primary' if tipo=='recibidos' else 'secondary' }} btn-sm"
+       href="{{ url_for('cfdis.mes_detalle', empresa_id=empresa.id, anio=anio, mes=mes, tipo='recibidos') }}">Recibidos</a>
+</div>
+
+{% if cfdis %}
+<form method="POST" action="{{ url_for('cfdis.exportar') }}">
+    <input type="hidden" name="empresa_id" value="{{ empresa.id }}">
+    <input type="hidden" name="anio" value="{{ anio }}">
+    <input type="hidden" name="mes" value="{{ mes }}">
+    <input type="hidden" name="tipo" value="{{ tipo }}">
+
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:13px;color:#666">{{ total_count }} CFDIs en el mes</span>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="select-all" onchange="toggleAll(this)"> Seleccionar esta página
+        </label>
+        <select name="formato" style="padding:6px">
+            <option value="xml">XML</option>
+            <option value="pdf">PDF</option>
+            <option value="ambos">XML + PDF</option>
+        </select>
+        <button type="submit" name="accion" value="seleccion" class="btn btn-sm btn-primary">Descargar seleccionados</button>
+        <button type="submit" name="accion" value="mes" class="btn btn-sm btn-danger"
+                onclick="return confirm('Descargar TODO el mes ({{ total_count }} CFDIs)?')">Descargar mes completo</button>
+    </div>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:40px"></th>
+                <th>Fecha</th>
+                <th>Tipo</th>
+                <th>RFC Emisor</th>
+                <th>RFC Receptor</th>
+                <th>Total</th>
+                <th>IVA</th>
+                <th>Estado</th>
+                <th>PDF</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cf in cfdis %}
+            <tr>
+                <td><input type="checkbox" name="cfdis" value="{{ cf.id }}" onchange="updateCount()"></td>
+                <td>{{ cf.fecha_emision.strftime('%d/%m/%y') if cf.fecha_emision else '-' }}</td>
+                <td>{{ {'I':'Ingreso','E':'Egreso','T':'Traslado','N':'Nomina','P':'Pago','R':'Retencion'}.get(cf.tipo_comprobante, cf.tipo_comprobante) }}</td>
+                <td>{{ cf.rfc_emisor }}</td>
+                <td>{{ cf.rfc_receptor }}</td>
+                <td>${{ "{:,.2f}".format(cf.total) }}</td>
+                <td>${{ "{:,.2f}".format(cf.iva_trasladado) }}</td>
+                <td>
+                    <span class="badge badge-{{ 'success' if cf.estado == 'vigente' else 'error' }}">{{ cf.estado }}</span>
+                </td>
+                <td>
+                    {% if cf.pdf_path or cf.xml_content %}
+                    <a href="{{ url_for('sat.descargar_pdf', cfdi_id=cf.id) }}" class="btn btn-sm btn-secondary">PDF</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</form>
+
+<div class="pagination" style="display:flex;gap:8px;margin:16px 0;align-items:center">
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+        {% if p %}
+            {% if p == pagination.page %}
+                <span style="font-weight:bold">{{ p }}</span>
+            {% else %}
+                <a class="btn btn-sm btn-secondary"
+                   href="{{ url_for('cfdis.mes_detalle', empresa_id=empresa.id, anio=anio, mes=mes, tipo=tipo, page=p) }}">{{ p }}</a>
+            {% endif %}
+        {% else %}
+            <span>…</span>
+        {% endif %}
+    {% endfor %}
+</div>
+{% else %}
+<p class="empty-state">No hay CFDIs en este periodo.</p>
+{% endif %}
+
+<script>
+function toggleAll(src) {
+    document.querySelectorAll('input[name="cfdis"]').forEach(function(cb) { cb.checked = src.checked; });
+    updateCount();
+}
+function updateCount() {
+    var n = document.querySelectorAll('input[name="cfdis"]:checked').length;
+    var el = document.getElementById('selected-count');
+    if (el) { el.textContent = n ? n + ' seleccionado' + (n > 1 ? 's' : '') : ''; }
+}
+</script>
+{% endblock %}

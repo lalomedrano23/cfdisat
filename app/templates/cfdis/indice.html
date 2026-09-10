@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Mis CFDIs - CFDISAT{% endblock %}
+{% block content %}
+<div class="dashboard-header">
+    <h1>Mis CFDIs por mes</h1>
+    <div class="empresa-selector">
+        <select id="empresa-select" onchange="if(this.value) window.location.href='/cfdis?empresa_id=' + this.value">
+            <option value="">Seleccionar empresa...</option>
+            {% for emp in empresas %}
+            <option value="{{ emp.id }}" {% if empresa_id == emp.id %}selected{% endif %}>
+                {{ emp.rfc }} - {{ emp.razon_social }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+</div>
+
+{% if empresa %}
+<div class="stats-grid">
+    <div class="stat-card stat-blue"><div class="stat-number">{{ total_rows }}</div><div class="stat-label">Total CFDIs</div></div>
+    <div class="stat-card stat-green"><div class="stat-number">{{ empresa.rfc }}</div><div class="stat-label">RFC</div></div>
+</div>
+
+{% if anios %}
+    {% for anio in anios %}
+    <div class="panel">
+        <h3>{{ anio }}</h3>
+        <div class="form-wrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
+            {% for m in meses_por_anio[anio] %}
+                {% if m.total > 0 %}
+                <div class="stat-card stat-info">
+                    <div class="stat-number">{{ m.nombre }} <small style="font-size:14px">{{ m.total }}</small></div>
+                    <div class="stat-label">Emitidos: {{ m.emitidos }} · Recibidos: {{ m.recibidos }}</div>
+                    <div class="stat-label" style="color:#333">Total: ${{ "{:,.2f}".format(m.total_vigente) }}</div>
+                    <a class="btn btn-sm btn-secondary" style="margin-top:8px"
+                       href="{{ url_for('cfdis.mes_detalle', empresa_id=empresa.id, anio=anio, mes=m.mes, tipo='todos') }}">
+                        Ver y descargar
+                    </a>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+<p class="empty-state">No hay CFDIs registrados para esta empresa. <a href="{{ url_for('sat.descargar_cfdi') }}">Descargar ahora</a></p>
+{% endif %}
+
+{% else %}
+<div class="empty-container">
+    <h2>Selecciona una empresa</h2>
+    <p>Elige una empresa para ver sus CFDIs organizados por mes.</p>
+</div>
+{% endif %}
+{% endblock %}

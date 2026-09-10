@@ -191,6 +191,8 @@ def create_app():
     from app.dashboard import dashboard_bp
     from app.reportes import reportes_bp
     from app.admin import admin_bp
+    from app.cfdis import cfdis_bp
+    from app.programacion import programacion_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(fiel_bp)
@@ -198,6 +200,8 @@ def create_app():
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(reportes_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(cfdis_bp)
+    app.register_blueprint(programacion_bp)
 
     @app.errorhandler(500)
     def internal_error(e):
@@ -245,5 +249,9 @@ def create_app():
                 app.logger.info('Admin user created: admin@cfdisat.local')
         except Exception as e:
             app.logger.warning(f'Admin creation error: {e}')
+
+    from app.scheduler import scheduler_debe_iniciar, start_scheduler
+    if scheduler_debe_iniciar(app):
+        start_scheduler(app)
 
     return app

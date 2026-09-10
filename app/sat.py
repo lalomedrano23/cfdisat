@@ -685,31 +685,7 @@ def descargar_pdf(cfdi_id):
         return redirect(url_for('dashboard.ver_empresa', empresa_id=cf.empresa_id))
 
 
-@sat_bp.route('/sat/descarga-masiva', methods=['POST'])
-@login_required
-def descarga_masiva():
-    empresa_id = request.form.get('empresa_id', type=int)
-    formato = request.form.get('formato', 'xml')
-    cfdis_ids = request.form.getlist('cfdis')
-
-    if not empresa_id or not cfdis_ids:
-        flash('Seleccione al menos un CFDI.', 'error')
-        return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id or 0))
-
-    empresa = Empresa.query.get_or_404(empresa_id)
-    if empresa.user_id != current_user.id:
-        flash('No tienes acceso.', 'error')
-        return redirect(url_for('dashboard.index'))
-
-    cfdis = CFDI.query.filter(
-        CFDI.id.in_([int(x) for x in cfdis_ids]),
-        CFDI.empresa_id == empresa_id
-    ).all()
-
-    if not cfdis:
-        flash('No se encontraron CFDIs seleccionados.', 'error')
-        return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id))
-
+def build_cfdis_zip(cfdis, formato):
     include_xml = formato in ('xml', 'ambos')
     include_pdf = formato in ('pdf', 'ambos')
 
@@ -750,11 +726,42 @@ def descarga_masiva():
                     except Exception:
                         pass
 
+    buf.seek(0)
+    return buf, added
+
+
+@sat_bp.route('/sat/descarga-masiva', methods=['POST'])
+@login_required
+def descarga_masiva():
+    empresa_id = request.form.get('empresa_id', type=int)
+    formato = request.form.get('formato', 'xml')
+    cfdis_ids = request.form.getlist('cfdis')
+
+    if not empresa_id or not cfdis_ids:
+        flash('Seleccione al menos un CFDI.', 'error')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id or 0))
+
+    empresa = Empresa.query.get_or_404(empresa_id)
+    if empresa.user_id != current_user.id:
+        flash('No tienes acceso.', 'error')
+        return redirect(url_for('dashboard.index'))
+
+    cfdis = CFDI.query.filter(
+        CFDI.id.in_([int(x) for x in cfdis_ids]),
+        CFDI.empresa_id == empresa_id
+    ).all()
+
+    if not cfdis:
+        flash('No se encontraron CFDIs seleccionados.', 'error')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id))
+
+    buf, added = build_cfdis_zip(cfdis, formato)
+    db.session.commit()
+
     if added == 0:
         flash('No hay archivos disponibles para los CFDIs seleccionados.', 'error')
         return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id))
 
-    db.session.commit()
     buf.seek(0)
 
     tipo_label = {'xml': 'XML', 'pdf': 'PDF', 'ambos': 'XML_PDF'}.get(formato, 'XML')

@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Programación de descargas - CFDISAT{% endblock %}
+{% block content %}
+<div class="dashboard-header">
+    <h1>Programación de descargas</h1>
+</div>
+
+<div class="form-card">
+    <h3>Nueva programación</h3>
+    <form method="POST" action="{{ url_for('programacion.crear') }}">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Empresa</label>
+                <select name="empresa_id" required>
+                    <option value="">Seleccionar empresa...</option>
+                    {% for emp in empresas %}
+                    <option value="{{ emp.id }}">{{ emp.rfc }} - {{ emp.razon_social }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Tipo de CFDI</label>
+                <select name="tipo">
+                    {% for val, label in tipos.items() %}
+                    <option value="{{ val }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Frecuencia</label>
+                <select name="periodicidad">
+                    {% for val, label in periodicidades.items() %}
+                    <option value="{{ val }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" id="group-semana">
+                <label>Día de la semana</label>
+                <select name="dia_semana">
+                    {% for d in dias_semana %}
+                    <option value="{{ loop.index0 }}">{{ d }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" id="group-mes">
+                <label>Día del mes</label>
+                <input type="number" name="dia_mes" min="1" max="28" value="1">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Hora</label>
+                <select name="hora">
+                    {% for h in range(0, 24) %}
+                    <option value="{{ h }}">{{ '%02d' % h }}:00</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Minuto</label>
+                <select name="minuto">
+                    {% for m in [0, 15, 30, 45] %}
+                    <option value="{{ m }}">{{ m }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Periodo a descargar</label>
+                <select name="horizonte">
+                    {% for val, label in horizontes.items() %}
+                    <option value="{{ val }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row" id="group-fechas" style="display:none">
+            <div class="form-group">
+                <label>Fecha inicio</label>
+                <input type="date" name="fecha_inicio_fija">
+            </div>
+            <div class="form-group">
+                <label>Fecha fin</label>
+                <input type="date" name="fecha_fin_fija">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" name="incluir_pdf" value="1"> Incluir PDF (solicitud adicional al SAT)
+            </label>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-success btn-lg">Guardar programación</button>
+        </div>
+    </form>
+</div>
+
+<div class="panel">
+    <h3>Programaciones</h3>
+    {% if schedules %}
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Empresa</th>
+                <th>Tipo</th>
+                <th>Frecuencia</th>
+                <th>Próxima ejecución</th>
+                <th>Última</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in schedules %}
+            <tr>
+                <td>{{ s.empresa.rfc }}</td>
+                <td>{{ tipos.get(s.tipo, s.tipo) }}</td>
+                <td>
+                    {% if s.periodicidad == 'diaria' %}
+                    Diaria
+                    {% elif s.periodicidad == 'semanal' %}
+                    Semanal ({{ dias_semana[s.dia_semana] }})
+                    {% else %}
+                    Mes día {{ s.dia_mes }}
+                    {% endif %}
+                </td>
+                <td>{{ s.proxima_ejecucion.strftime('%d/%m/%y %H:%M') if s.proxima_ejecucion else '—' }}</td>
+                <td>{{ s.ultima_ejecucion.strftime('%d/%m/%y %H:%M') if s.ultima_ejecucion else '—' }}</td>
+                <td>
+                    <span class="badge badge-{{ 'success' if s.activa else 'warning' }}">
+                        {{ 'Activa' if s.activa else 'Inactiva' }}
+                    </span>
+                    {% if s.mensaje %}
+                    <br><small style="color:#666">{{ s.mensaje }}</small>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="POST" action="{{ url_for('programacion.toggle', sched_id=s.id) }}" style="display:inline">
+                        <button type="submit" class="btn btn-sm btn-{{ 'secondary' if s.activa else 'success' }}">
+                            {{ 'Desactivar' if s.activa else 'Activar' }}
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('programacion.ejecutar_ahora', sched_id=s.id) }}" style="display:inline">
+                        <button type="submit" class="btn btn-sm btn-primary">Ejecutar ahora</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('programacion.eliminar', sched_id=s.id) }}" style="display:inline">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar esta programación?')">Eliminar</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No hay programaciones creadas.</p>
+    {% endif %}
+</div>
+
+<script>
+    const selPeriodicidad = document.querySelector('select[name="periodicidad"]');
+    const selHorizonte = document.querySelector('select[name="horizonte"]');
+    const groupSemana = document.getElementById('group-semana');
+    const groupMes = document.getElementById('group-mes');
+    const groupFechas = document.getElementById('group-fechas');
+
+    function actualizarFrecuencia() {
+        const p = selPeriodicidad.value;
+        groupSemana.style.display = p === 'semanal' ? '' : 'none';
+        groupMes.style.display = p === 'mensual' ? '' : 'none';
+    }
+    function actualizarFechas() {
+        groupFechas.style.display = selHorizonte.value === 'periodo_fijo' ? '' : 'none';
+    }
+    selPeriodicidad.addEventListener('change', actualizarFrecuencia);
+    selHorizonte.addEventListener('change', actualizarFechas);
+    actualizarFrecuencia();
+    actualizarFechas();
+</script>
+{% endblock %}

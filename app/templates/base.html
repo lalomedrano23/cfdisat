@@ -16,6 +16,8 @@
             <a href="{{ url_for('dashboard.index') }}">Dashboard</a>
             <a href="{{ url_for('fiel.configurar_fiel') }}">Empresas/FIEL</a>
             <a href="{{ url_for('sat.descargar_cfdi') }}">Descargar CFDIs</a>
+            <a href="{{ url_for('cfdis.indice') }}">Mis CFDIs</a>
+            <a href="{{ url_for('programacion.index') }}">Programación</a>
             <a href="{{ url_for('reportes.index') }}">Reportes</a>
             {% if current_user.is_admin %}
             <a href="{{ url_for('admin.index') }}" class="nav-admin">Admin</a>

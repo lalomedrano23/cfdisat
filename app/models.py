@@ -104,3 +104,26 @@ class DownloadRequest(db.Model):
     mensaje = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     completed_at = db.Column(db.DateTime)
+
+
+class DownloadSchedule(db.Model):
+    __tablename__ = 'download_schedules'
+    id = db.Column(db.Integer, primary_key=True)
+    empresa_id = db.Column(db.Integer, db.ForeignKey('empresas.id'), nullable=False)
+    empresa = db.relationship('Empresa', backref='schedules', lazy=True)
+    tipo = db.Column(db.String(20), default='todos')  # todos, emitidos, recibidos, retenciones...
+    periodicidad = db.Column(db.String(10), default='mensual')  # diaria, semanal, mensual
+    dia_semana = db.Column(db.Integer, default=0)  # 0=Lunes ... 6=Domingo
+    dia_mes = db.Column(db.Integer, default=1)      # 1-28
+    hora = db.Column(db.Integer, default=8)
+    minuto = db.Column(db.Integer, default=0)
+    horizonte = db.Column(db.String(20), default='mes_anterior')  # mes_anterior, mes_actual, periodo_fijo
+    fecha_inicio_fija = db.Column(db.Date)
+    fecha_fin_fija = db.Column(db.Date)
+    incluir_pdf = db.Column(db.Boolean, default=False)
+    activa = db.Column(db.Boolean, default=True)
+    ultima_ejecucion = db.Column(db.DateTime)
+    proxima_ejecucion = db.Column(db.DateTime)
+    estado = db.Column(db.String(20), default='pendiente')  # pendiente, procesando, ok, error
+    mensaje = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
