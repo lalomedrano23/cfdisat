@@ -56,13 +56,54 @@
 <div class="dashboard-actions">
     <a href="{{ url_for('sat.descargar_cfdi') }}" class="btn btn-primary">Descargar CFDIs del SAT</a>
     {% if empresa_id %}
-    <a href="{{ url_for('sat.sincronizar_metadata', empresa_id=empresa_id) }}" class="btn btn-secondary"
-       onclick="return confirm('Sincronizar metadata de todos los CFDIs?')">Sincronizar Metadata</a>
+    <form method="POST" action="{{ url_for('sat.sincronizar_metadata', empresa_id=empresa_id) }}" style="display:inline"
+          onsubmit="return confirm('Consultar la vigencia de todos los CFDIs en el SAT?')">
+        <button type="submit" class="btn btn-secondary" {% if sincronizando %}disabled{% endif %}>
+            {{ 'Sincronizando...' if sincronizando else 'Sincronizar Metadata' }}
+        </button>
+    </form>
     <a href="{{ url_for('reportes.iva', empresa_id=empresa_id) }}" class="btn btn-secondary">Reporte IVA</a>
     <a href="{{ url_for('reportes.isr', empresa_id=empresa_id) }}" class="btn btn-secondary">Reporte ISR</a>
     <a href="{{ url_for('reportes.exportar_excel', empresa_id=empresa_id) }}" class="btn btn-success">Exportar Excel</a>
     {% endif %}
 </div>
+
+{% if metadata_syncs %}
+<div class="panel">
+    <h3>Sincronizacion de Metadata</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Inicio</th>
+                <th>Estado</th>
+                <th>Consultados</th>
+                <th>Actualizados</th>
+                <th>Cancelados</th>
+                <th>Vigentes</th>
+                <th>Mensaje</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in metadata_syncs %}
+            <tr>
+                <td>{{ s.iniciado_en.strftime('%d/%m %H:%M') }}</td>
+                <td>
+                    <span class="badge badge-{{ 'success' if s.estado == 'ok' else 'warning' if s.estado == 'procesando' else 'error' }}">
+                        {{ s.estado }}
+                    </span>
+                    {% if s.terminado_en %}<br><small>{{ s.terminado_en.strftime('%d/%m %H:%M') }}</small>{% endif %}
+                </td>
+                <td>{{ s.total_consultados }}</td>
+                <td>{{ s.actualizados }}</td>
+                <td>{{ s.cancelados }}</td>
+                <td>{{ s.vigentes }}</td>
+                <td><small>{{ s.mensaje or '' }}</small></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
 
 <div class="dashboard-grid">
     <div class="panel">

@@ -3,9 +3,13 @@ from flask import Blueprint, render_template, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import func, extract
 from app import db
-from app.models import Empresa, CFDI, DownloadRequest
+from app.models import Empresa, CFDI, DownloadRequest, MetadataSync
 
 dashboard_bp = Blueprint('dashboard', __name__)
+
+
+def _sincronizando(metadata_syncs):
+    return bool(metadata_syncs and metadata_syncs[0].estado == 'procesando')
 
 
 @dashboard_bp.route('/')
@@ -22,6 +26,7 @@ def index():
     stats = {}
     cfdis_recientes = []
     download_requests = []
+    metadata_syncs = []
 
     if empresas:
         empresa_id = empresas[0].id
@@ -31,6 +36,8 @@ def index():
                 .order_by(CFDI.fecha_emision.desc()).limit(10).all()
             download_requests = DownloadRequest.query.filter_by(empresa_id=empresa_id)\
                 .order_by(DownloadRequest.created_at.desc()).limit(5).all()
+            metadata_syncs = MetadataSync.query.filter_by(empresa_id=empresa_id)\
+                .order_by(MetadataSync.iniciado_en.desc()).limit(5).all()
         except Exception as e:
             current_app.logger.error(f'Dashboard data error: {e}')
             db.session.rollback()
@@ -40,7 +47,9 @@ def index():
                          empresa_id=empresa_id,
                          stats=stats,
                          cfdis_recientes=cfdis_recientes,
-                         download_requests=download_requests)
+                         download_requests=download_requests,
+                         metadata_syncs=metadata_syncs,
+                         sincronizando=_sincronizando(metadata_syncs))
 
 
 @dashboard_bp.route('/empresa/<int:empresa_id>')
@@ -64,12 +73,15 @@ def ver_empresa(empresa_id):
             .order_by(CFDI.fecha_emision.desc()).limit(20).all()
         download_requests = DownloadRequest.query.filter_by(empresa_id=empresa_id)\
             .order_by(DownloadRequest.created_at.desc()).limit(10).all()
+        metadata_syncs = MetadataSync.query.filter_by(empresa_id=empresa_id)\
+            .order_by(MetadataSync.iniciado_en.desc()).limit(5).all()
     except Exception as e:
         current_app.logger.error(f'Ver empresa data error: {e}')
         db.session.rollback()
         stats = {}
         cfdis_recientes = []
         download_requests = []
+        metadata_syncs = []
 
     return render_template('dashboard/index.html',
                          empresas=empresas,
@@ -77,7 +89,9 @@ def ver_empresa(empresa_id):
                          empresaSeleccionada=empresa,
                          stats=stats,
                          cfdis_recientes=cfdis_recientes,
-                         download_requests=download_requests)
+                         download_requests=download_requests,
+                         metadata_syncs=metadata_syncs,
+                         sincronizando=_sincronizando(metadata_syncs))
 
 
 def _get_empresa_stats(empresa_id):

@@ -127,3 +127,18 @@ class DownloadSchedule(db.Model):
     estado = db.Column(db.String(20), default='pendiente')  # pendiente, procesando, ok, error
     mensaje = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class MetadataSync(db.Model):
+    __tablename__ = 'metadata_syncs'
+    id = db.Column(db.Integer, primary_key=True)
+    empresa_id = db.Column(db.Integer, db.ForeignKey('empresas.id'), nullable=False)
+    empresa = db.relationship('Empresa', backref='metadata_syncs', lazy=True)
+    estado = db.Column(db.String(20), default='procesando')  # procesando, ok, error
+    total_consultados = db.Column(db.Integer, default=0)
+    actualizados = db.Column(db.Integer, default=0)
+    cancelados = db.Column(db.Integer, default=0)
+    vigentes = db.Column(db.Integer, default=0)
+    mensaje = db.Column(db.Text)
+    iniciado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    terminado_en = db.Column(db.DateTime)

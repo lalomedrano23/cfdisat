@@ -2,13 +2,17 @@ import os
 import time
 import base64
 import io
+import logging
+import threading
 import zipfile
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app, Response
 from flask_login import login_required, current_user
 from app import db
-from app.models import Empresa, FielCredentials, CFDI, DownloadRequest
+from app.models import Empresa, FielCredentials, CFDI, DownloadRequest, MetadataSync
 from app.fiel import decrypt_password
+
+logger = logging.getLogger(__name__)
 
 sat_bp = Blueprint('sat', __name__)
 
@@ -527,36 +531,98 @@ def sincronizar_metadata(empresa_id):
         flash('No tienes acceso.', 'error')
         return redirect(url_for('dashboard.index'))
 
-    try:
-        signer, error = _create_signer(empresa)
-        if error:
-            raise Exception(error)
+    en_curso = MetadataSync.query.filter_by(empresa_id=empresa_id, estado='procesando').first()
+    if en_curso:
+        flash('Ya hay una sincronización de metadata en curso. Espera a que termine.', 'warning')
+        return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id))
 
-        from satcfdi.pacs.sat import SAT
-        sat = SAT(signer=signer)
+    sync = MetadataSync(empresa_id=empresa_id, estado='procesando')
+    db.session.add(sync)
+    db.session.commit()
+    sync_id = sync.id
+    app = current_app._get_current_object()
 
-        cfdis = CFDI.query.filter_by(empresa_id=empresa_id).all()
-        updated = 0
-        for cf in cfdis:
-            if not cf.uuid:
-                continue
-            try:
-                cfdi_dict = {'UUID': cf.uuid}
-                status = sat.status(cfdi_dict)
-                if status:
-                    if 'Cancelado' in str(status):
-                        cf.estado = 'cancelado'
-                    updated += 1
-            except Exception:
-                continue
+    def _run():
+        try:
+            _ejecutar_sync_metadata(sync_id, app)
+        except Exception:
+            logger.error(f'[METADATA] Error interno al ejecutar sync {sync_id}', exc_info=True)
 
-        db.session.commit()
-        flash(f'Metadata sincronizada: {updated} CFDIs actualizados.', 'success')
+    t = threading.Thread(target=_run, daemon=True, name=f'metadata-{empresa_id}')
+    t.start()
 
-    except Exception as e:
-        flash(f'Error al sincronizar: {str(e)}', 'error')
-
+    flash('Sincronización de metadata iniciada en segundo plano.', 'success')
     return redirect(url_for('dashboard.ver_empresa', empresa_id=empresa_id))
+
+
+def _ejecutar_sync_metadata(sync_id, app):
+    with app.app_context():
+        sync = db.session.get(MetadataSync, sync_id)
+        if sync is None:
+            return
+
+        total = 0
+        actualizados = 0
+        vigentes = 0
+        cancelados = 0
+        error = None
+
+        try:
+            empresa = Empresa.query.get(sync.empresa_id)
+            signer, err = _create_signer(empresa)
+            if err:
+                raise Exception(err)
+
+            from satcfdi.pacs.sat import SAT
+            sat = SAT(signer=signer)
+
+            filas = CFDI.query.filter_by(empresa_id=sync.empresa_id)\
+                .with_entities(CFDI.id, CFDI.uuid, CFDI.estado).all()
+            for cf_id, cf_uuid, cf_estado in filas:
+                if not cf_uuid:
+                    continue
+                total += 1
+                try:
+                    status = sat.status({'UUID': cf_uuid})
+                except Exception:
+                    continue
+                texto = str(status)
+                if 'Cancelado' in texto:
+                    nuevo = 'cancelado'
+                elif 'Vigente' in texto:
+                    nuevo = 'vigente'
+                else:
+                    continue
+
+                if nuevo == 'vigente':
+                    vigentes += 1
+                else:
+                    cancelados += 1
+
+                if cf_estado != nuevo:
+                    reg = db.session.get(CFDI, cf_id)
+                    if reg is not None:
+                        reg.estado = nuevo
+                        actualizados += 1
+
+            db.session.commit()
+        except Exception as e:
+            error = str(e)
+            db.session.rollback()
+            logger.error(f'[METADATA] Error en sync {sync_id}: {e}', exc_info=True)
+
+        sync = db.session.get(MetadataSync, sync_id)
+        if sync is not None:
+            sync.estado = 'error' if error else 'ok'
+            sync.total_consultados = total
+            sync.actualizados = actualizados
+            sync.vigentes = vigentes
+            sync.cancelados = cancelados
+            sync.mensaje = error or f'{actualizados} CFDIs actualizados de {total} consultados.'
+            sync.terminado_en = datetime.utcnow()
+            db.session.commit()
+
+    logger.info(f'[METADATA] Sync {sync_id} terminado: {actualizados} actualizados de {total}')
 
 
 @sat_bp.route('/sat/cancelar-descarga/<int:request_id>', methods=['POST'])
