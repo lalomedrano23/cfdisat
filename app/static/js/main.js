@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Set default dates
+    // Header date defaults
     const fechaInicio = document.getElementById('fecha_inicio');
     const fechaFin = document.getElementById('fecha_fin');
     if (fechaInicio && fechaFin && !fechaInicio.value) {
@@ -29,5 +29,19 @@ document.addEventListener('DOMContentLoaded', function() {
         const primerDia = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
         fechaInicio.value = primerDia.toISOString().split('T')[0];
         fechaFin.value = hoy.toISOString().split('T')[0];
+    }
+
+    // Mobile menu toggle
+    const navToggle = document.querySelector('.nav-toggle');
+    const navLinks = document.querySelector('.nav-links');
+    if (navToggle && navLinks) {
+        navToggle.addEventListener('click', function() {
+            navLinks.classList.toggle('open');
+        });
+        navLinks.querySelectorAll('a').forEach(function(link) {
+            link.addEventListener('click', function() {
+                navLinks.classList.remove('open');
+            });
+        });
     }
 });
