@@ -66,8 +66,8 @@
                 <td>{{ {'I':'Ingreso','E':'Egreso','T':'Traslado','N':'Nomina','P':'Pago','R':'Retencion'}.get(cf.tipo_comprobante, cf.tipo_comprobante) }}</td>
                 <td>{{ cf.rfc_emisor }}</td>
                 <td>{{ cf.rfc_receptor }}</td>
-                <td>${{ "{:,.2f}".format(cf.total) }}</td>
-                <td>${{ "{:,.2f}".format(cf.iva_trasladado) }}</td>
+                <td>${{ "{:,.2f}".format(cf.total or 0) }}</td>
+                <td>${{ "{:,.2f}".format(cf.iva_trasladado or 0) }}</td>
                 <td>
                     <span class="badge badge-{{ 'success' if cf.estado == 'vigente' else 'error' }}">{{ cf.estado }}</span>
                 </td>

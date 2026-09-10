@@ -89,25 +89,22 @@ def mes_detalle(empresa_id, anio, mes):
     en_estado = request.args.get('estado', '')
     page = request.args.get('page', 1, type=int)
 
-    query = CFDI.query.filter(
+    base = CFDI.query.filter(
         CFDI.empresa_id == empresa.id,
         extract('year', CFDI.fecha_emision) == anio,
         extract('month', CFDI.fecha_emision) == mes,
     )
     if tipo == 'emitidos':
-        query = query.filter(CFDI.rfc_emisor == empresa.rfc)
+        base = base.filter(CFDI.rfc_emisor == empresa.rfc)
     elif tipo == 'recibidos':
-        query = query.filter(CFDI.rfc_receptor == empresa.rfc)
+        base = base.filter(CFDI.rfc_receptor == empresa.rfc)
     if en_estado:
-        query = query.filter(CFDI.estado == en_estado)
+        base = base.filter(CFDI.estado == en_estado)
 
-    query = query.order_by(CFDI.fecha_emision.desc())
+    total_count = base.count()
+    total_monto = base.with_entities(func.coalesce(func.sum(CFDI.total), 0)).scalar() or 0
 
-    total_query = query.with_entities(func.count(CFDI.id))
-    total_count = total_query.scalar() or 0
-    total_monto = query.with_entities(func.coalesce(func.sum(CFDI.total), 0)).scalar() or 0
-
-    pagination = query.paginate(page=page, per_page=PER_PAGE, error_out=False)
+    pagination = base.order_by(CFDI.fecha_emision.desc()).paginate(page=page, per_page=PER_PAGE, error_out=False)
     cfdis_pagina = pagination.items
 
     def _contar(tipo_filtro):
