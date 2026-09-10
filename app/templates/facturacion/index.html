@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="dashboard-header">
+    <h1>Facturacion</h1>
+</div>
+
+<div class="report-cards">
+    <div class="report-card">
+        <h3>Crear Factura</h3>
+        <p>Genera y timbra comprobantes CFDI 4.0 usando la FIEL de tus empresas.</p>
+        <div class="report-links">
+            <a href="{{ url_for('facturacion.crear') }}" class="btn btn-primary">Crear factura</a>
+            <a href="{{ url_for('facturacion.facturas') }}" class="btn btn-secondary">Mis facturas</a>
+        </div>
+    </div>
+    <div class="report-card">
+        <h3>Validacion RFC Acreedor</h3>
+        <p>Consulta fuentes oficiales (SAT) para validar RFC/CURP y capturar Razon Social, CP fiscal y regimen fiscal.</p>
+        <div class="report-links">
+            <a href="{{ url_for('facturacion.validacion') }}" class="btn btn-primary">Validar RFC / CURP</a>
+        </div>
+    </div>
+</div>
+
+{% if facturas %}
+<div class="panel">
+    <h3>Facturas recientes</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Folio</th>
+                <th>Fecha</th>
+                <th>Receptor</th>
+                <th>Total</th>
+                <th>Estado</th>
+                <th>Accion</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in facturas %}
+            <tr>
+                <td>{{ f.serie }}-{{ f.folio }}</td>
+                <td>{{ f.fecha_emision.strftime('%d/%m/%Y %H:%M') }}</td>
+                <td>{{ f.nombre_receptor }}<br><small>{{ f.rfc_receptor }}</small></td>
+                <td>${{ "{:,.2f}".format(f.total or 0) }}</td>
+                <td>
+                    <span class="badge badge-{{ 'success' if f.estado == 'timbrada' else 'warning' if f.estado == 'borrador' else 'error' }}">
+                        {{ f.estado }}
+                    </span>
+                </td>
+                <td>
+                    <a href="{{ url_for('facturacion.detalle', factura_id=f.id) }}" class="btn btn-small btn-secondary">Ver</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if validaciones %}
+<div class="panel">
+    <h3>Ultimas validaciones de RFC</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>RFC</th>
+                <th>Razon Social</th>
+                <th>CP</th>
+                <th>Regimen</th>
+                <th>Art. 69-B</th>
+                <th>Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for v in validaciones %}
+            <tr>
+                <td>{{ v.rfc }}</td>
+                <td>{{ v.razon_social or v.nombre or '-' }}</td>
+                <td>{{ v.codigo_postal_fiscal or '-' }}</td>
+                <td>{{ v.regimen_fiscal or '-' }}</td>
+                <td>{{ v.lista_69 or '-' }}</td>
+                <td><span class="badge badge-{{ 'success' if v.estado == 'ok' else 'warning' if v.estado == 'parcial' else 'error' }}">{{ v.estado }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="dashboard-header">
+    <h1>Validacion RFC / CURP Acreedor</h1>
+</div>
+
+<div class="form-container">
+    <form method="POST" action="{{ url_for('facturacion.validar_registro') }}" class="form-card">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="rfc">RFC</label>
+                <input type="text" id="rfc" name="rfc" placeholder="Ej: XAXX010101000" maxlength="13">
+                <small>RFC de la persona fisica/moral acreedora.</small>
+            </div>
+            <div class="form-group">
+                <label for="curp">CURP (opcional)</label>
+                <input type="text" id="curp" name="curp" placeholder="Ej: GODE561231HDFNMN07" maxlength="18">
+                <small>Se guarda como referencia; las fuentes oficiales se consultan con el RFC.</small>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="id_cif">ID CIF de la constancia SAT (opcional)</label>
+                <input type="text" id="id_cif" name="id_cif" placeholder="Aparece en la constancia de situacion fiscal">
+                <small>Si lo capturas, el sistema obtiene Razon Social, CP fiscal y regimenes de la constancia.</small>
+            </div>
+            <div class="form-group">
+                <label for="empresa_id">Empresa que consulta (opcional)</label>
+                <select id="empresa_id" name="empresa_id">
+                    <option value="">— Ninguna —</option>
+                    {% for e in empresas %}
+                    <option value="{{ e.id }}">{{ e.razon_social }} ({{ e.rfc }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Validar en origen</button>
+        </div>
+    </form>
+</div>
+
+<div class="form-info">
+    <p><strong>Fuentes consultadas:</strong></p>
+    <p>• <strong>Listado Art. 69-B SAT</strong> — estatus del contribuyente en el padron oficial (circulante, cobro persistente, etc.).</p>
+    <p>• <strong>Constancia de Situacion Fiscal (SAT)</strong> — razon social, CP fiscal y regimenes (requiere el ID CIF).</p>
+    <p>• <strong>IMSS</strong> — enlace reservado; el IMSS no expone una API publica de NSS.</p>
+</div>
+
+{% if registros %}
+<div class="panel">
+    <h3>Registros guardados</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>RFC</th>
+                <th>CURP</th>
+                <th>Razon Social / Nombre</th>
+                <th>CP Fiscal</th>
+                <th>Regimen</th>
+                <th>Art. 69-B</th>
+                <th>Consultado</th>
+                <th>Accion</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in registros %}
+            <tr>
+                <td>{{ r.rfc }}</td>
+                <td>{{ r.curp or '-' }}</td>
+                <td>{{ r.razon_social or r.nombre or '-' }}</td>
+                <td>{{ r.codigo_postal_fiscal or '-' }}</td>
+                <td>{{ r.regimen_fiscal or '-' }}{% if r.regimen_fiscal_desc %}<br><small>{{ r.regimen_fiscal_desc }}</small>{% endif %}</td>
+                <td>
+                    {% if r.lista_69 %}
+                    <span class="badge badge-{{ 'error' if r.lista_69 != 'No localizado en el listado Art. 69-B' else 'success' }}">{{ r.lista_69 }}</span>
+                    {% else %}—{% endif %}
+                </td>
+                <td>{{ r.consultado_en.strftime('%d/%m/%Y %H:%M') }}</td>
+                <td>
+                    <form method="POST" action="{{ url_for('facturacion.eliminar_validacion', reg_id=r.id) }}" style="display:inline"
+                          onsubmit="return confirm('Eliminar este registro?')">
+                        <button type="submit" class="btn btn-small btn-danger">Eliminar</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">Aun no hay registros. Valida un RFC o CURP arriba.</div>
+{% endif %}
+{% endblock %}

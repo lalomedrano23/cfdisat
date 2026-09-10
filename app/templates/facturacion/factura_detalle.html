@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="dashboard-header">
+    <h1>Factura {{ factura.serie }}-{{ factura.folio }}</h1>
+    <a href="{{ url_for('facturacion.facturas') }}" class="btn btn-secondary">Mis facturas</a>
+</div>
+
+<div class="panel">
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Estado</div>
+            <span class="badge badge-{{ 'success' if factura.estado == 'timbrada' else 'warning' if factura.estado == 'borrador' else 'error' }}">
+                {{ factura.estado }}
+            </span>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">UUID</div>
+            <div class="uuid-cell">{{ factura.uuid or 'Sin timbrar' }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Total</div>
+            <div class="stat-number">${{ "{:,.2f}".format(factura.total or 0) }}</div>
+        </div>
+    </div>
+
+    {% if factura.mensaje %}<div class="form-info"><p>{{ factura.mensaje }}</p></div>{% endif %}
+
+    <table class="table">
+        <tr><th>Emisor</th><td>{{ factura.empresa.razon_social }}</td></tr>
+        <tr><th>Receptor</th><td>{{ factura.nombre_receptor }} ({{ factura.rfc_receptor }})</td></tr>
+        <tr><th>Fecha emision</th><td>{{ factura.fecha_emision.strftime('%d/%m/%Y %H:%M') }}</td></tr>
+        <tr><th>Fecha timbrado</th><td>{{ factura.fecha_timbrado.strftime('%d/%m/%Y %H:%M') if factura.fecha_timbrado else '—' }}</td></tr>
+        <tr><th>Uso CFDI</th><td>{{ factura.uso_cfdi or '—' }}</td></tr>
+        <tr><th>Regimen receptor</th><td>{{ factura.regimen_fiscal_receptor or '—' }}</td></tr>
+        <tr><th>CP receptor</th><td>{{ factura.codigo_postal_receptor or '—' }}</td></tr>
+        <tr><th>Forma / Metodo pago</th><td>{{ factura.forma_pago or '—' }} / {{ factura.metodo_pago or '—' }}</td></tr>
+        <tr><th>Moneda</th><td>{{ factura.moneda }}</td></tr>
+    </table>
+
+    <h3 style="margin:16px 0 8px; font-size:16px;">Conceptos</h3>
+    <table class="table">
+        <thead>
+            <tr><th>Descripcion</th><th>Cantidad</th><th>Valor unitario</th><th>Subtotal</th></tr>
+        </thead>
+        <tbody>
+            {% if concepto %}
+            <tr>
+                <td>{{ concepto[0].descripcion }}</td>
+                <td>{{ concepto[0].cantidad }}</td>
+                <td>${{ "{:,.2f}".format(concepto[0].valor_unitario | float) }}</td>
+                <td>${{ "{:,.2f}".format(factura.subtotal or 0) }}</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+
+    <table class="table" style="margin-top:12px">
+        <tr><th>Subtotal</th><td>${{ "{:,.2f}".format(factura.subtotal or 0) }}</td></tr>
+        <tr><th>IVA</th><td>${{ "{:,.2f}".format(factura.iva or 0) }}</td></tr>
+        <tr><th>Total</th><td><strong>${{ "{:,.2f}".format(factura.total or 0) }}</strong></td></tr>
+    </table>
+
+    <div class="dashboard-actions" style="margin-top:20px">
+        <a href="{{ url_for('facturacion.descargar_xml', factura_id=factura.id) }}" class="btn btn-primary">Descargar XML</a>
+        {% if factura.estado != 'timbrada' %}
+        <form method="POST" action="{{ url_for('facturacion.timbrar_factura', factura_id=factura.id) }}" style="display:inline"
+              onsubmit="return confirm('Enviar al PAC para timbrar?')">
+            <button type="submit" class="btn btn-success">Timbrar por PAC</button>
+        </form>
+        {% endif %}
+        <form method="POST" action="{{ url_for('facturacion.eliminar_factura', factura_id=factura.id) }}" style="display:inline"
+              onsubmit="return confirm('Eliminar esta factura?')">
+            <button type="submit" class="btn btn-danger">Eliminar</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -47,3 +47,9 @@ class Config:
         'pool_pre_ping': True,
         'pool_recycle': 300,
     }
+
+    # Timbrado por PAC (Finkok). Variables se leen tambien desde el entorno.
+    PAC_PROVIDER = os.getenv('PAC_PROVIDER', 'finkok')
+    FINKOK_USERNAME = os.getenv('FINKOK_USERNAME', '')
+    FINKOK_PASSWORD = os.getenv('FINKOK_PASSWORD', '')
+    FINKOK_ENTORNO = os.getenv('FINKOK_ENTORNO', 'test')

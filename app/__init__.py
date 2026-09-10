@@ -193,6 +193,7 @@ def create_app():
     from app.admin import admin_bp
     from app.cfdis import cfdis_bp
     from app.programacion import programacion_bp
+    from app.facturacion import facturacion_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(fiel_bp)
@@ -202,6 +203,7 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(cfdis_bp)
     app.register_blueprint(programacion_bp)
+    app.register_blueprint(facturacion_bp)
 
     @app.errorhandler(500)
     def internal_error(e):

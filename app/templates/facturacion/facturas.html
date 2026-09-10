@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="dashboard-header">
+    <h1>Mis Facturas</h1>
+    <a href="{{ url_for('facturacion.crear') }}" class="btn btn-primary">Crear factura</a>
+</div>
+
+{% if facturas %}
+<div class="panel">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Folio</th>
+                <th>Fecha</th>
+                <th>Receptor</th>
+                <th>Subtotal</th>
+                <th>IVA</th>
+                <th>Total</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in facturas %}
+            <tr>
+                <td>{{ f.serie }}-{{ f.folio }}</td>
+                <td>{{ f.fecha_emision.strftime('%d/%m/%Y %H:%M') }}</td>
+                <td>{{ f.nombre_receptor }}<br><small>{{ f.rfc_receptor }}</small></td>
+                <td>${{ "{:,.2f}".format(f.subtotal or 0) }}</td>
+                <td>${{ "{:,.2f}".format(f.iva or 0) }}</td>
+                <td>${{ "{:,.2f}".format(f.total or 0) }}</td>
+                <td>
+                    <span class="badge badge-{{ 'success' if f.estado == 'timbrada' else 'warning' if f.estado == 'borrador' else 'error' }}">
+                        {{ f.estado }}
+                    </span>
+                </td>
+                <td>
+                    <div class="actions">
+                        <a href="{{ url_for('facturacion.detalle', factura_id=f.id) }}" class="btn btn-small btn-secondary">Ver</a>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-container">
+    <h2>Aun no hay facturas</h2>
+    <p>Genera tu primer CFDI 4.0.</p>
+    <a href="{{ url_for('facturacion.crear') }}" class="btn btn-primary">Crear factura</a>
+</div>
+{% endif %}
+{% endblock %}

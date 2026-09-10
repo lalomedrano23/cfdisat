@@ -29,6 +29,27 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 .btn-logout:hover { background: rgba(255,255,255,0.25) !important; color: #fff !important; }
 .nav-admin { background: rgba(255,255,255,0.2); padding: 5px 12px; border-radius: 4px; font-weight: 600; }
 
+.nav-dropdown { position: relative; }
+.nav-dropdown-toggle { cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.nav-dropdown-content {
+    display: none; position: absolute; top: 100%; left: 0; min-width: 210px;
+    background: #fff; border-radius: 6px; box-shadow: var(--shadow);
+    padding: 6px; z-index: 50;
+}
+.nav-dropdown-content a {
+    display: block; color: var(--text) !important; padding: 8px 12px;
+    border-radius: 4px; font-size: 13px;
+}
+.nav-dropdown-content a:hover { background: #f1f3f4; }
+.nav-dropdown:hover .nav-dropdown-content { display: block; }
+.nav-dropdown.open .nav-dropdown-content { display: block; }
+
+@media (max-width: 900px) {
+    .nav-dropdown { width: 100%; }
+    .nav-dropdown-content { position: static; display: none; margin: 4px 0 0 12px; box-shadow: none; }
+    .nav-dropdown.open .nav-dropdown-content { display: block; }
+}
+
 /* Container */
 .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
 

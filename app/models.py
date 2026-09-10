@@ -142,3 +142,64 @@ class MetadataSync(db.Model):
     mensaje = db.Column(db.Text)
     iniciado_en = db.Column(db.DateTime, default=datetime.utcnow)
     terminado_en = db.Column(db.DateTime)
+
+
+class ValidacionRFC(db.Model):
+    __tablename__ = 'validacion_rfc'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    empresa_id = db.Column(db.Integer, db.ForeignKey('empresas.id'), nullable=True)
+    rfc = db.Column(db.String(13), nullable=False)
+    curp = db.Column(db.String(18))
+    persona_moral = db.Column(db.Boolean, default=False)
+    razon_social = db.Column(db.String(300))
+    nombre = db.Column(db.String(300))
+    codigo_postal_fiscal = db.Column(db.String(10))
+    regimen_fiscal = db.Column(db.String(10))
+    regimen_fiscal_desc = db.Column(db.String(150))
+    lista_69 = db.Column(db.String(40))          # estatus en padron Art. 69-B
+    nss = db.Column(db.String(20))               # si el proveedor la entrega (IMSS)
+    fuente = db.Column(db.String(50))            # listado_69b / constancia_cif / manual
+    resultado_completo = db.Column(db.Text)      # JSON con todo lo que devolvieron las fuentes
+    estado = db.Column(db.String(20), default='ok')  # ok, parcial, error
+    mensaje = db.Column(db.Text)
+    consultado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='validaciones', lazy=True)
+
+
+class Factura(db.Model):
+    __tablename__ = 'facturas_emitidas'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    empresa_id = db.Column(db.Integer, db.ForeignKey('empresas.id'), nullable=False)
+    serie = db.Column(db.String(25))
+    folio = db.Column(db.String(25))
+    uuid = db.Column(db.String(36))
+    fecha_emision = db.Column(db.DateTime)
+    fecha_timbrado = db.Column(db.DateTime)
+    rfc_receptor = db.Column(db.String(13), nullable=False)
+    nombre_receptor = db.Column(db.String(300))
+    uso_cfdi = db.Column(db.String(10))
+    regimen_fiscal_receptor = db.Column(db.String(10))
+    codigo_postal_receptor = db.Column(db.String(10))
+    lugar_expedicion = db.Column(db.String(5))
+    forma_pago = db.Column(db.String(5))
+    metodo_pago = db.Column(db.String(5))
+    moneda = db.Column(db.String(5), default='MXN')
+    tipo_cambio = db.Column(db.Float, default=1.0)
+    subtotal = db.Column(db.Float, default=0)
+    iva = db.Column(db.Float, default=0)
+    isr_retenido = db.Column(db.Float, default=0)
+    iva_retenido = db.Column(db.Float, default=0)
+    total = db.Column(db.Float, default=0)
+    concepto_json = db.Column(db.Text)
+    xml_content = db.Column(db.Text)           # XML firmado (pre-timbrado)
+    xml_timbrado = db.Column(db.Text)          # XML con timbre (si lo timbro el PAC/SAT)
+    estado = db.Column(db.String(20), default='borrador')  # borrador, timbrada, error
+    mensaje = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='facturas', lazy=True)
+    empresa = db.relationship('Empresa', backref='facturas', lazy=True)

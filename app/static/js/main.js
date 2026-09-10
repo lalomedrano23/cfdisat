@@ -45,3 +45,16 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+function toggleDropdown(event) {
+    event.preventDefault();
+    const dd = event.currentTarget.closest('.nav-dropdown');
+    if (dd) dd.classList.toggle('open');
+}
+
+document.addEventListener('click', function(event) {
+    const open = document.querySelectorAll('.nav-dropdown.open');
+    open.forEach(function(dd) {
+        if (!dd.contains(event.target)) dd.classList.remove('open');
+    });
+});

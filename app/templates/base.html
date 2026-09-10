@@ -20,6 +20,14 @@
             <a href="{{ url_for('cfdis.indice') }}">Mis CFDIs</a>
             <a href="{{ url_for('programacion.index') }}">Programación</a>
             <a href="{{ url_for('reportes.index') }}">Reportes</a>
+            <div class="nav-dropdown">
+                <a href="#" class="nav-dropdown-toggle" onclick="toggleDropdown(event)">Facturación &#9662;</a>
+                <div class="nav-dropdown-content">
+                    <a href="{{ url_for('facturacion.crear') }}">Crear factura</a>
+                    <a href="{{ url_for('facturacion.validacion') }}">Validación RFC Acreedor</a>
+                    <a href="{{ url_for('facturacion.facturas') }}">Mis facturas</a>
+                </div>
+            </div>
             {% if current_user.is_admin %}
             <a href="{{ url_for('admin.index') }}" class="nav-admin">Admin</a>
             {% endif %}

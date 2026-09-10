@@ -1,0 +1,194 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="dashboard-header">
+    <h1>Crear Factura CFDI 4.0</h1>
+    <a href="{{ url_for('facturacion.facturas') }}" class="btn btn-secondary">Mis facturas</a>
+</div>
+
+{% if not empresas %}
+<div class="form-info">Primero registra una empresa con su FIEL en <a href="{{ url_for('fiel.configurar_fiel') }}">Empresas/FIEL</a> para poder emitir facturas.</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('facturacion.crear') }}" class="form-card">
+    <div class="form-row">
+        <div class="form-group">
+            <label for="empresa_id">Empresa emisora *</label>
+            <select id="empresa_id" name="empresa_id" required>
+                <option value="">— Selecciona —</option>
+                {% for e in empresas %}
+                <option value="{{ e.id }}" {% if form.empresa_id == e.id %}selected{% endif %}>{{ e.razon_social }} ({{ e.rfc }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="receptor_id">Receptor desde Validacion RFC (opcional)</label>
+            <select id="receptor_id" name="receptor_id">
+                <option value="">— Captura manual —</option>
+                {% for v in validaciones %}
+                <option value="{{ v.id }}" data-rfc="{{ v.rfc }}" data-nombre="{{ v.razon_social or v.nombre or '' }}"
+                        data-cp="{{ v.codigo_postal_fiscal or '' }}" data-regimen="{{ v.regimen_fiscal or '' }}"
+                        {% if form.receptor_id == v.id %}selected{% endif %}>
+                    {{ v.rfc }} — {{ v.razon_social or v.nombre or 'Sin datos' }}
+                </option>
+                {% endfor %}
+            </select>
+            <small>Al elegir un RFC validado, se rellenan Razon Social, CP fiscal y regimen.</small>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label for="rfc_receptor">RFC Receptor *</label>
+            <input type="text" id="rfc_receptor" name="rfc_receptor" required maxlength="13" placeholder="XAXX010101000">
+        </div>
+        <div class="form-group">
+            <label for="nombre_receptor">Razon Social / Nombre *</label>
+            <input type="text" id="nombre_receptor" name="nombre_receptor" required
+                   placeholder="Nombre o razon social del acreedor">
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label for="cp_receptor">Codigo Postal fiscal (receptor) *</label>
+            <input type="text" id="cp_receptor" name="cp_receptor" required maxlength="5"
+                   placeholder="06600">
+        </div>
+        <div class="form-group">
+            <label for="regimen_receptor">Regimen Fiscal (receptor)</label>
+            <select id="regimen_receptor" name="regimen_receptor">
+                <option value="">— Selecciona —</option>
+                <option value="601">601 — General de Ley Personas Morales</option>
+                <option value="604">604 — Personas Morales con Fines no Lucrativos</option>
+                <option value="606">606 — Arrendamiento</option>
+                <option value="608">608 — Demas ingresos</option>
+                <option value="612">612 — Personas Fisicas con Actividades Empresariales y Profesionales</option>
+                <option value="615">615 — Regimen de los ingresos por obtencion de premios</option>
+                <option value="616">616 — Sin obligaciones fiscales</option>
+                <option value="621">621 — Incorporacion Fiscal</option>
+                <option value="625">625 — Regimen de las Actividades Empresariales con ingresos a traves de Plataformas Tecnologicas</option>
+                <option value="626">626 — Regimen Simplificado de Confianza</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label for="uso_cfdi">Uso CFDI (receptor)</label>
+            <select id="uso_cfdi" name="uso_cfdi">
+                {% for code, desc in uso_cfdi.items() %}
+                <option value="{{ code }}" {% if code == 'G03' %}selected{% endif %}>{{ code }} — {{ desc }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="regimen_emisor">Regimen Fiscal (emisor)</label>
+            <select id="regimen_emisor" name="regimen_emisor">
+                {% for code, desc in regimenes.items() %}
+                <option value="{{ code }}" {% if code == '601' %}selected{% endif %}>{{ code }} — {{ desc }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label for="lugar_expedicion">Codigo Postal expedicion *</label>
+            <input type="text" id="lugar_expedicion" name="lugar_expedicion" maxlength="5"
+                   placeholder="CP del domicilio fiscal del emisor">
+        </div>
+        <div class="form-group">
+            <label for="forma_pago">Forma de pago</label>
+            <select id="forma_pago" name="forma_pago">
+                {% for code, desc in forma_pago.items() %}
+                <option value="{{ code }}">{{ code }} — {{ desc }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label for="metodo_pago">Metodo de pago</label>
+            <select id="metodo_pago" name="metodo_pago">
+                <option value="PUE">PUE — Pago en una sola exhibicion</option>
+                <option value="PPD">PPD — Pago en parcialidades o diferido</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="moneda">Moneda</label>
+            <select id="moneda" name="moneda">
+                <option value="MXN">MXN — Peso Mexicano</option>
+                <option value="USD">USD — Dolar estadounidense</option>
+                <option value="EUR">EUR — Euro</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label for="serie">Serie</label>
+            <input type="text" id="serie" name="serie" value="A" maxlength="15">
+        </div>
+        <div class="form-group">
+            <label for="folio">Folio</label>
+            <input type="text" id="folio" name="folio" maxlength="15"
+                   placeholder="Vacio = siguiente folio automatico">
+        </div>
+    </div>
+
+    <h2 style="margin:16px 0 8px; font-size:16px;">Concepto</h2>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="descripcion">Descripcion *</label>
+            <input type="text" id="descripcion" name="descripcion" required>
+        </div>
+        <div class="form-group">
+            <label for="cantidad">Cantidad</label>
+            <input type="number" id="cantidad" name="cantidad" value="1" step="any" min="0.01">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="valor_unitario">Valor unitario *</label>
+            <input type="number" id="valor_unitario" name="valor_unitario" step="0.01" min="0" required>
+        </div>
+        <div class="form-group">
+            <label for="aplica_iva">Aplicar IVA 16%</label>
+            <input type="checkbox" id="aplica_iva" name="aplica_iva" checked style="width:auto; margin-top:10px;">
+            <small style="display:block">Se calcula automaticamente sobre el valor total.</small>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>
+            <input type="checkbox" name="timbrar_ahora" value="on">
+            Timbrar por PAC al crear (requiere credenciales Finkok configuradas)
+        </label>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary btn-lg">Generar Factura</button>
+        <a href="{{ url_for('facturacion.index') }}" class="btn btn-secondary">Cancelar</a>
+    </div>
+</form>
+
+<script>
+function autoFillReceptor() {
+    const sel = document.getElementById('receptor_id');
+    if (!sel) return;
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    document.getElementById('rfc_receptor').value = opt.dataset.rfc || '';
+    document.getElementById('nombre_receptor').value = opt.dataset.nombre || '';
+    document.getElementById('cp_receptor').value = opt.dataset.cp || '';
+    const rg = document.getElementById('regimen_receptor');
+    if (opt.dataset.regimen) rg.value = opt.dataset.regimen;
+}
+const rs = document.getElementById('receptor_id');
+if (rs) {
+    rs.addEventListener('change', autoFillReceptor);
+    autoFillReceptor();
+}
+</script>
+{% endblock %}
