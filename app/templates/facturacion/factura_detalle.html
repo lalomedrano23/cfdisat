@@ -61,6 +61,7 @@
     </table>
 
     <div class="dashboard-actions" style="margin-top:20px">
+        <a href="{{ url_for('facturacion.guia_captura', factura_id=factura.id) }}" class="btn btn-secondary">Guia de captura SAT (gratis)</a>
         <a href="{{ url_for('facturacion.descargar_xml', factura_id=factura.id) }}" class="btn btn-primary">Descargar XML</a>
         {% if factura.estado != 'timbrada' %}
         <form method="POST" action="{{ url_for('facturacion.timbrar_factura', factura_id=factura.id) }}" style="display:inline"

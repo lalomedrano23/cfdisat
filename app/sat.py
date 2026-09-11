@@ -278,6 +278,14 @@ def _descargar_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoSolic
     if solicitud.get('CodEstatus') == '5004':
         return 0, 0
 
+    cod = solicitud.get('CodEstatus', '5000')
+    if cod not in ('5000', '') or 'IdSolicitud' not in solicitud:
+        raise Exception(
+            f'El SAT rechazo la solicitud de descarga ({tipo}). '
+            f'CodEstatus={cod} Mensaje={solicitud.get("Mensaje", "")} '
+            f'Respuesta={solicitud}'
+        )
+
     id_solicitud = solicitud['IdSolicitud']
     logger.info(f"[DESCARGA] ID solicitud {tipo}: {id_solicitud}, esperando...")
 
@@ -394,6 +402,9 @@ def _descargar_pdf_tipo(sat, empresa, tipo, fecha_inicio_d, fecha_fin_d, EstadoS
                 continue
 
         if not solicitud_pdf or solicitud_pdf.get('CodEstatus') == '5004':
+            return 0
+
+        if solicitud_pdf.get('CodEstatus', '5000') not in ('5000', '') or 'IdSolicitud' not in solicitud_pdf:
             return 0
 
         id_solicitud_pdf = solicitud_pdf['IdSolicitud']

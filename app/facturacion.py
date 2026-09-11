@@ -1,6 +1,7 @@
 """Modulo Facturacion: Validacion de RFC Acreedor y Creacion + Timbrado de CFDIs 4.0."""
 
 import json
+import uuid as uuidmod
 from datetime import datetime
 
 from flask import Blueprint, Response, current_app, flash, redirect, render_template, request, url_for
@@ -432,3 +433,118 @@ def eliminar_factura(factura_id):
     db.session.commit()
     flash('Factura eliminada.', 'success')
     return redirect(url_for('facturacion.facturas'))
+
+
+def _factura_o_redirect(factura_id):
+    factura = Factura.query.get_or_404(factura_id)
+    if factura.user_id != current_user.id:
+        flash('No tienes acceso.', 'error')
+        return None, redirect(url_for('facturacion.facturas'))
+    return factura, None
+
+
+def _extraer_timbre(xml_text):
+    """Devuelve (uuid, fecha_timbrado) desde el XML timbrado por el SAT."""
+    from lxml import etree
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        root = etree.fromstring(xml_text.encode('utf-8'))
+    except etree.XMLSyntaxError as e:
+        raise Exception(f'El XML capturado no es valido: {e}')
+
+    tag = etree.QName(root).localname if hasattr(root.tag, 'text') else str(root.tag).rsplit('}', 1)[-1]
+    if tag != 'Comprobante':
+        raise Exception('El XML no parece un CFDI (falta el nodo Comprobante).')
+
+    timbre = None
+    for el in root.iter():
+        local = str(el.tag).rsplit('}', 1)[-1]
+        if local == 'TimbreFiscalDigital':
+            timbre = el
+            break
+    if timbre is None:
+        raise Exception('El XML no contiene el nodo TimbreFiscalDigital; verifica que sea el XML timbrado por el SAT.')
+
+    uuid_val = timbre.get('UUID', '').strip()
+    fecha_timbrado = timbre.get('FechaTimbrado', '').strip() or None
+    if not uuid_val:
+        raise Exception('El TimbreFiscalDigital no tiene UUID.')
+
+    return uuid_val, fecha_timbrado
+
+
+@facturacion_bp.route('/facturacion/facturas/<int:factura_id>/guia')
+@login_required
+def guia_captura(factura_id):
+    factura, redir = _factura_o_redirect(factura_id)
+    if redir:
+        return redir
+    concepto = None
+    if factura.concepto_json:
+        try:
+            concepto = json.loads(factura.concepto_json)
+        except Exception:
+            pass
+    empresa = db.session.get(Empresa, factura.empresa_id)
+    return render_template('facturacion/guia_captura.html', factura=factura, concepto=concepto, empresa=empresa)
+
+
+@facturacion_bp.route('/facturacion/facturas/<int:factura_id>/timbrado-manual', methods=['POST'])
+@login_required
+def registrar_timbrado_manual(factura_id):
+    factura, redir = _factura_o_redirect(factura_id)
+    if redir:
+        return redir
+
+    xml_text = (request.form.get('xml_timbrado') or '').strip()
+    uuid_text = (request.form.get('uuid') or '').strip()
+
+    if not xml_text and not uuid_text:
+        flash('Indica el UUID o pega el XML timbrado.', 'error')
+        return redirect(url_for('facturacion.guia_captura', factura_id=factura.id))
+
+    uuid_val = None
+    fecha_timbrado = None
+    xml_normalizado = None
+    try:
+        if xml_text:
+            uuid_val, fecha_timbrado = _extraer_timbre(xml_text)
+            xml_normalizado = xml_text
+            from lxml import etree
+            xml_normalizado = etree.tostring(etree.fromstring(xml_text.encode('utf-8')),
+                                             pretty_print=True, encoding='unicode')
+            if uuid_text:
+                try:
+                    uuid_text_canon = str(uuidmod.UUID(uuid_text))
+                except Exception:
+                    flash('El UUID capturado no tiene el formato correcto.', 'error')
+                    return redirect(url_for('facturacion.guia_captura', factura_id=factura.id))
+                if uuid_text_canon != str(uuidmod.UUID(uuid_val)):
+                    flash('El UUID capturado no coincide con el UUID del XML.', 'error')
+                    return redirect(url_for('facturacion.guia_captura', factura_id=factura.id))
+        else:
+            uuid_val = str(uuidmod.UUID(uuid_text))
+    except Exception as e:
+        flash(f'No se pudo registrar el timbre: {e}', 'error')
+        return redirect(url_for('facturacion.guia_captura', factura_id=factura.id))
+
+    if not fecha_timbrado:
+        from satcfdi.cfdi import MEXICO_TZ
+        fecha_timbrado = datetime.now(MEXICO_TZ)
+    else:
+        try:
+            fecha_timbrado = datetime.fromisoformat(str(fecha_timbrado).replace('Z', '+00:00'))
+        except Exception:
+            from satcfdi.cfdi import MEXICO_TZ
+            fecha_timbrado = datetime.now(MEXICO_TZ)
+
+    factura.uuid = uuid_val
+    factura.fecha_timbrado = fecha_timbrado
+    factura.xml_timbrado = xml_normalizado
+    factura.estado = 'timbrada'
+    factura.mensaje = 'Timbrada manualmente en el portal gratuito del SAT.'
+    db.session.commit()
+
+    flash(f'Factura registrada como timbrada (UUID {uuid_val}).', 'success')
+    return redirect(url_for('facturacion.detalle', factura_id=factura.id))

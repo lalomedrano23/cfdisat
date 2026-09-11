@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% block title %}Guia de captura SAT - CFDISAT{% endblock %}
+{% block content %}
+<style>
+    .hoja { max-width: 820px; margin: 0 auto; font-size: 14px; }
+    .guia-acciones { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .pasos { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+    .pasos ol { margin: 8px 0 0 18px; line-height: 1.7; }
+    table.hoja-tabla { width: 100%; border-collapse: collapse; }
+    table.hoja-tabla th, table.hoja-tabla td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; vertical-align: top; }
+    table.hoja-tabla th { background: #eee; width: 200px; }
+    .registro-manual { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-top: 20px; }
+    .registro-manual textarea { width: 100%; min-height: 140px; font-family: monospace; font-size: 12px; }
+    @media print {
+        .guia-acciones, .registro-manual, nav, .flash-messages { display: none !important; }
+        .hoja { max-width: 100%; }
+        body { background: #fff; }
+    }
+</style>
+
+<div class="hoja">
+    <div class="guia-acciones">
+        <button class="btn btn-primary" onclick="window.print()">Imprimir hoja</button>
+        <a href="{{ url_for('facturacion.detalle', factura_id=factura.id) }}" class="btn btn-secondary">Volver a la factura</a>
+    </div>
+
+    <div class="pasos">
+        <strong>Como timbrar gratis en el portal del SAT:</strong>
+        <ol>
+            <li>Entra a <strong>factura.sat.gob.mx</strong> (o SAT → "Generar factura" / "Servicio de facturación CFDI 4.0").</li>
+            <li>Inicia sesion con tu <strong>RFC y contrasena</strong> (captcha) o con tu e.firma.</li>
+            <li>Selecciona <strong>Generar factura</strong> tipo <strong>Ingreso</strong> y captura los datos de la tabla siguiente.</li>
+            <li>Revisa el preview, <strong>sella la factura</strong> y descarga el XML.</li>
+            <li>Vuelve aqui, presiona <strong>"Registrar timbre manual"</strong> y pega el UUID o el XML timbrado.</li>
+        </ol>
+    </div>
+
+    <table class="hoja-tabla">
+        <tr><th>Dato</th><th>Valor a capturar</th></tr>
+        <tr><th>RFC Emisor</th><td>{{ factura.empresa.rfc if factura.empresa else '' }}</td></tr>
+        <tr><th>Nombre / Razon social (Emisor)</th><td>{{ factura.empresa.razon_social if factura.empresa else '' }}</td></tr>
+        <tr><th>Codigo postal (Emisor)</th><td>{{ factura.lugar_expedicion if factura.lugar_expedicion else '' }}</td></tr>
+        <tr><th>RFC Receptor</th><td>{{ factura.rfc_receptor }}</td></tr>
+        <tr><th>Nombre / Razon social (Receptor)</th><td>{{ factura.nombre_receptor }}</td></tr>
+        <tr><th>Codigo postal (Receptor)</th><td>{{ factura.codigo_postal_receptor or factura.receptor_cp or '' }}</td></tr>
+        <tr><th>Regimen fiscal (Receptor)</th><td>{{ factura.regimen_fiscal_receptor or '' }}</td></tr>
+        <tr><th>Uso CFDI</th><td>{{ factura.uso_cfdi or 'G03' }}</td></tr>
+        <tr><th>Serie / Folio</th><td>{{ factura.serie or '' }} / {{ factura.folio or '' }}</td></tr>
+        <tr><th>Lugar de expedicion</th><td>{{ factura.lugar_expedicion or '' }}</td></tr>
+        <tr><th>Forma de pago</th><td>{{ factura.forma_pago or '03' }}</td></tr>
+        <tr><th>Metodo de pago</th><td>{{ factura.metodo_pago or 'PUE' }}</td></tr>
+        <tr><th>Moneda</th><td>{{ factura.moneda or 'MXN' }}</td></tr>
+        <tr><th>Tipo cambio</th><td>{{ factura.tipo_cambio or ('' if (factura.moneda or 'MXN') == 'MXN' else '1') }}</td></tr>
+        <tr><th>Fecha de emision</th><td>{{ factura.fecha_emision.strftime('%d/%m/%Y') }}</td></tr>
+        {% if concepto %}
+        <tr>
+            <th>Concepto (clave / cantidad / unidad / descripcion / valor c/u)</th>
+            <td>
+                {{ concepto[0].clave_prod_serv or '84111506' }} — {{ concepto[0].cantidad }} {{ concepto[0].clave_unidad or 'ACT' }}
+                — {{ concepto[0].descripcion }} — ${{ "{:,.2f}".format(concepto[0].valor_unitario | float) }}
+            </td>
+        </tr>
+        {% endif %}
+        <tr><th>Subtotal</th><td>${{ "{:,.2f}".format(factura.subtotal or 0) }}</td></tr>
+        <tr><th>IVA 16%</th><td>${{ "{:,.2f}".format(factura.iva or 0) }}</td></tr>
+        <tr><th>Total</th><td><strong>${{ "{:,.2f}".format(factura.total or 0) }}</strong></td></tr>
+    </table>
+
+    <div class="registro-manual">
+        <h3>Registrar timbre manual (despues de que el SAT lo emita)</h3>
+        <form method="POST" action="{{ url_for('facturacion.registrar_timbrado_manual', factura_id=factura.id) }}">
+            <div class="form-group">
+                <label for="uuid">UUID (folio fiscal)</label>
+                <input type="text" id="uuid" name="uuid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            </div>
+            <div class="form-group">
+                <label for="xml_timbrado">O pega aqui el XML timbrado que descargo del portal</label>
+                <textarea id="xml_timbrado" name="xml_timbrado"></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-success">Registrar como timbrada</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
