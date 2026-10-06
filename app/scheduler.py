@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 _started = False
 _lock = threading.Lock()
 
+# Tiempo maximo (min) que una ejecucion de descarga puede quedar 'procesando'
+# antes de considerarse interrumpida (servidor reiniciado / timeout / OOM).
+PROCESANDO_MAX_MIN = 45
+
 
 def _ahora_mx():
     """Hora civil de Mexico (sin informacion de zona para guardarla en BD)."""
@@ -98,15 +102,24 @@ def lanzar_ejecucion(sched, app, programada=True):
     sched.ultima_ejecucion = ahora
     db.session.commit()
 
-    request_dl = DownloadRequest(
-        empresa_id=sched.empresa_id,
-        tipo=sched.tipo,
-        fecha_inicio=datetime.strptime(fecha_ini, '%Y-%m-%d'),
-        fecha_fin=datetime.strptime(fecha_fin, '%Y-%m-%d'),
-        estado='procesando'
-    )
-    db.session.add(request_dl)
-    db.session.commit()
+    request_dl = None
+    try:
+        request_dl = DownloadRequest(
+            empresa_id=sched.empresa_id,
+            tipo=sched.tipo,
+            fecha_inicio=datetime.strptime(fecha_ini, '%Y-%m-%d'),
+            fecha_fin=datetime.strptime(fecha_fin, '%Y-%m-%d'),
+            estado='procesando'
+        )
+        db.session.add(request_dl)
+        db.session.commit()
+    except Exception:
+        logger.exception('[PROGRAMACION] No se pudo crear el DownloadRequest, se marca error')
+        db.session.rollback()
+        sched.estado = 'error'
+        sched.mensaje = 'No se pudo iniciar la descarga (error interno). Revisa el log.'
+        db.session.commit()
+        return
 
     sched_id = sched.id
     req_id = request_dl.id
@@ -141,10 +154,47 @@ def lanzar_ejecucion(sched, app, programada=True):
     t.start()
 
 
+def _recuperar_procesos_stuck(ahora):
+    """Marca como 'error' las descargas que quedaron 'procesando' y ya no estan vivas.
+
+    Si el proceso del servidor se reinicia (Render recicla el worker, OOM, timeout),
+    el hilo de descarga muere sin poder actualizar el estado; sin esto, la programacion
+    quedaria 'procesando' para siempre.
+    """
+    from app.models import DownloadRequest as ReqModel
+    from app.models import DownloadSchedule as SchedModel
+
+    limite = ahora - timedelta(minutes=PROCESANDO_MAX_MIN)
+
+    schedules = SchedModel.query.filter_by(estado='procesando')\
+        .filter(SchedModel.ultima_ejecucion.isnot(None),
+                SchedModel.ultima_ejecucion < limite).all()
+    for s in schedules:
+        s.estado = 'error'
+        s.mensaje = ('La descarga se interrumpio (el servidor se reinicio o la tarea '
+                     'excedio el tiempo maximo). Lanzala de nuevo desde Programacion.')
+        s.proxima_ejecucion = calcular_proxima_ejecucion(s, ahora)
+
+    limite_utc = datetime.utcnow() - timedelta(minutes=PROCESANDO_MAX_MIN)
+    requests = ReqModel.query.filter_by(estado='procesando')\
+        .filter(ReqModel.created_at < limite_utc).all()
+    for r in requests:
+        r.estado = 'error'
+        r.mensaje = 'La descarga se interrumpio (servidor reiniciado o timeout).'
+        r.completed_at = ahora
+
+    if schedules or requests:
+        db.session.commit()
+        for s in schedules:
+            logger.warning('[PROGRAMACION] Ejecucion %s recuperada de "procesando" a "error"', s.id)
+
+
 def _revisar_programaciones(app):
     from app.models import DownloadSchedule
 
     ahora = _ahora_mx()
+    _recuperar_procesos_stuck(ahora)
+
     vencidas = DownloadSchedule.query.filter(
         DownloadSchedule.activa.is_(True),
         DownloadSchedule.proxima_ejecucion.isnot(None),
