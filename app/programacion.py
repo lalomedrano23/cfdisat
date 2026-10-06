@@ -5,7 +5,7 @@ from flask_login import current_user, login_required
 
 from app import db
 from app.models import DownloadSchedule, Empresa
-from app.scheduler import calcular_proxima_ejecucion, lanzar_ejecucion
+from app.scheduler import _ahora_mx, calcular_proxima_ejecucion, lanzar_ejecucion
 
 programacion_bp = Blueprint('programacion', __name__)
 
@@ -108,7 +108,7 @@ def crear():
         activa=True,
         estado='pendiente',
     )
-    sched.proxima_ejecucion = calcular_proxima_ejecucion(sched, datetime.utcnow())
+    sched.proxima_ejecucion = calcular_proxima_ejecucion(sched, _ahora_mx())
     db.session.add(sched)
     db.session.commit()
 
@@ -125,7 +125,7 @@ def toggle(sched_id):
 
     sched.activa = not sched.activa
     if sched.activa and sched.proxima_ejecucion is None:
-        sched.proxima_ejecucion = calcular_proxima_ejecucion(sched, datetime.utcnow())
+        sched.proxima_ejecucion = calcular_proxima_ejecucion(sched, _ahora_mx())
     db.session.commit()
 
     flash('Programacion {}'.format('activada' if sched.activa else 'desactivada'), 'success')

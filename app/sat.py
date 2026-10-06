@@ -5,7 +5,7 @@ import io
 import logging
 import threading
 import zipfile
-from datetime import datetime
+from datetime import datetime, date
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app, Response
 from flask_login import login_required, current_user
 from app import db
@@ -498,6 +498,19 @@ def _ejecutar_descarga_sat(request_id, empresa_id, tipo, fecha_inicio, fecha_fin
 
         fecha_inicio_d = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
         fecha_fin_d = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+
+        from satcfdi.cfdi import MEXICO_TZ
+        hoy_mx = datetime.now(MEXICO_TZ).date()
+        if fecha_fin_d > hoy_mx:
+            fecha_fin_d = hoy_mx
+        if fecha_inicio_d < date(2005, 7, 1):
+            fecha_inicio_d = date(2005, 7, 1)
+        if fecha_fin_d < fecha_inicio_d:
+            raise Exception(
+                f'Periodo invalido para descargar: inicio={fecha_inicio_d} fin={fecha_fin_d}. '
+                f'El SAT no acepta periodos futuros ni invertidos.'
+            )
+        fecha_inicio, fecha_fin = fecha_inicio_d.isoformat(), fecha_fin_d.isoformat()
 
         sat = SAT(signer=signer)
         logger.info(f"[DESCARGA] SAT signer creado OK")

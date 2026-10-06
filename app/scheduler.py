@@ -13,6 +13,12 @@ _started = False
 _lock = threading.Lock()
 
 
+def _ahora_mx():
+    """Hora civil de Mexico (sin informacion de zona para guardarla en BD)."""
+    from satcfdi.cfdi import MEXICO_TZ
+    return datetime.now(MEXICO_TZ).replace(tzinfo=None)
+
+
 def _dias_en_mes(anio, mes):
     return calendar.monthrange(anio, mes)[1]
 
@@ -38,6 +44,12 @@ def calcular_periodo(sched, ahora):
         fin = sched.fecha_fin_fija
 
     if not inicio or not fin:
+        return None, None
+
+    hoy_mx = date(ahora.year, ahora.month, ahora.day)
+    if fin > hoy_mx:
+        fin = hoy_mx
+    if fin < inicio:
         return None, None
     return inicio.isoformat(), fin.isoformat()
 
@@ -69,7 +81,7 @@ def calcular_proxima_ejecucion(sched, ahora):
 def lanzar_ejecucion(sched, app, programada=True):
     from app.models import DownloadRequest
 
-    ahora = datetime.utcnow()
+    ahora = _ahora_mx()
 
     if sched.estado == 'procesando':
         logger.info(f'[PROGRAMACION] Solicitud {sched.id} ya en proceso, se omite.')
@@ -120,7 +132,7 @@ def lanzar_ejecucion(sched, app, programada=True):
                 total = req.total_descargados if req else 0
                 s.estado = 'ok' if not err else 'error'
                 s.mensaje = err if err else (f'Descargados {total} CFDIs.')
-                s.proxima_ejecucion = calcular_proxima_ejecucion(s, datetime.utcnow())
+                s.proxima_ejecucion = calcular_proxima_ejecucion(s, _ahora_mx())
                 db.session.commit()
         except Exception:
             logger.exception('[PROGRAMACION] Error interno al ejecutar tarea')
@@ -132,7 +144,7 @@ def lanzar_ejecucion(sched, app, programada=True):
 def _revisar_programaciones(app):
     from app.models import DownloadSchedule
 
-    ahora = datetime.utcnow()
+    ahora = _ahora_mx()
     vencidas = DownloadSchedule.query.filter(
         DownloadSchedule.activa.is_(True),
         DownloadSchedule.proxima_ejecucion.isnot(None),
